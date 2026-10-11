@@ -25,6 +25,7 @@ def fact(
 def company_facts(
     us_gaap: dict[str, dict[str, list[dict[str, Any]]]],
     dei: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
+    ifrs: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
 ) -> dict[str, Any]:
     def wrap(tags: dict[str, dict[str, list[dict[str, Any]]]]) -> dict[str, Any]:
         return {tag: {"units": units} for tag, units in tags.items()}
@@ -32,6 +33,8 @@ def company_facts(
     facts: dict[str, Any] = {"us-gaap": wrap(us_gaap)}
     if dei:
         facts["dei"] = wrap(dei)
+    if ifrs:
+        facts["ifrs-full"] = wrap(ifrs)
     return {"cik": 1, "entityName": "Test Co", "facts": facts}
 
 

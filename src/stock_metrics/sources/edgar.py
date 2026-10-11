@@ -1,5 +1,8 @@
 """SEC EDGAR: ticker lookup and annual figures from XBRL "company facts".
 
+Covers US filers (10-K, US-GAAP tags) and foreign private issuers listed in the
+US (20-F/40-F, usually IFRS tags, often in a non-USD reporting currency).
+
 Companies label the same figure with different US-GAAP tags, and sometimes
 switch tags between years (Apple moved from SalesRevenueNet to
 RevenueFromContractWithCustomerExcludingAssessedTax in 2018). Each base
@@ -23,15 +26,27 @@ MIN_ANNUAL_DAYS = 340
 MAX_ANNUAL_DAYS = 390
 
 
+MONEY = "money"  # reporting currency, e.g. USD or MXN
+PER_SHARE = "per_share"  # reporting currency per share
+SHARES = "shares"
+
+# Annual report forms: US companies file 10-K; foreign private issuers file 20-F,
+# and Canadian issuers can file 40-F. Amendments ("/A") and transition reports count too.
+ANNUAL_FORMS = ("10-K", "20-F", "40-F")
+
+
 @dataclass(frozen=True)
 class Concept:
-    """A base figure we pull from filings."""
+    """A base figure we pull from filings.
+
+    `tags` are in priority order. Unprefixed tags are US-GAAP; IFRS tags (used by
+    foreign filers) are prefixed "ifrs-full:" and cover-page tags "dei:".
+    """
 
     key: str
     tags: tuple[str, ...]
-    unit: str  # "USD", "USD/shares" or "shares"
+    unit: str  # MONEY, PER_SHARE or SHARES
     instant: bool  # balance-sheet value at FY end vs. a flow over the year
-    taxonomy: str = "us-gaap"
 
 
 CONCEPTS: tuple[Concept, ...] = (
@@ -43,8 +58,10 @@ CONCEPTS: tuple[Concept, ...] = (
             "SalesRevenueNet",
             "RevenueFromContractWithCustomerIncludingAssessedTax",
             "SalesRevenueGoodsNet",
+            "ifrs-full:Revenue",
+            "ifrs-full:RevenueFromContractsWithCustomers",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
     Concept(
@@ -53,20 +70,28 @@ CONCEPTS: tuple[Concept, ...] = (
             "CostOfRevenue",
             "CostOfGoodsAndServicesSold",
             "CostOfGoodsSold",
+            "ifrs-full:CostOfSales",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
-    Concept("gross_profit", ("GrossProfit",), "USD", instant=False),
-    Concept("operating_income", ("OperatingIncomeLoss",), "USD", instant=False),
+    Concept("gross_profit", ("GrossProfit", "ifrs-full:GrossProfit"), MONEY, instant=False),
+    Concept(
+        "operating_income",
+        ("OperatingIncomeLoss", "ifrs-full:ProfitLossFromOperatingActivities"),
+        MONEY,
+        instant=False,
+    ),
     Concept(
         "net_income",
         (
             "NetIncomeLoss",
             "NetIncomeLossAvailableToCommonStockholdersBasic",
             "ProfitLoss",
+            "ifrs-full:ProfitLossAttributableToOwnersOfParent",
+            "ifrs-full:ProfitLoss",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
     Concept(
@@ -75,19 +100,27 @@ CONCEPTS: tuple[Concept, ...] = (
             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
+            "ifrs-full:ProfitLossBeforeTax",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
-    Concept("income_tax", ("IncomeTaxExpenseBenefit",), "USD", instant=False),
+    Concept(
+        "income_tax",
+        ("IncomeTaxExpenseBenefit", "ifrs-full:IncomeTaxExpenseContinuingOperations"),
+        MONEY,
+        instant=False,
+    ),
     Concept(
         "d_and_a",
         (
             "DepreciationDepletionAndAmortization",
             "DepreciationAmortizationAndAccretionNet",
             "DepreciationAndAmortization",
+            "ifrs-full:DepreciationAndAmortisationExpense",
+            "ifrs-full:AdjustmentsForDepreciationAndAmortisationExpense",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
     Concept(
@@ -95,8 +128,9 @@ CONCEPTS: tuple[Concept, ...] = (
         (
             "NetCashProvidedByUsedInOperatingActivities",
             "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+            "ifrs-full:CashFlowsFromUsedInOperatingActivities",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
     Concept(
@@ -104,57 +138,90 @@ CONCEPTS: tuple[Concept, ...] = (
         (
             "PaymentsToAcquirePropertyPlantAndEquipment",
             "PaymentsToAcquireProductiveAssets",
+            "ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+            "ifrs-full:PurchaseOfPropertyPlantAndEquipment",
+            "ifrs-full:PurchaseOfPropertyPlantAndEquipmentIntangibleAssetsOtherThanGoodwillInvestmentPropertyAndOtherNoncurrentAssets",
         ),
-        "USD",
+        MONEY,
         instant=False,
     ),
-    Concept("eps_basic", ("EarningsPerShareBasic",), "USD/shares", instant=False),
-    Concept("eps_diluted", ("EarningsPerShareDiluted",), "USD/shares", instant=False),
+    Concept(
+        "eps_basic",
+        ("EarningsPerShareBasic", "ifrs-full:BasicEarningsLossPerShare"),
+        PER_SHARE,
+        instant=False,
+    ),
+    Concept(
+        "eps_diluted",
+        (
+            "EarningsPerShareDiluted",
+            "ifrs-full:DilutedEarningsLossPerShare",
+            "ifrs-full:BasicAndDilutedEarningsLossPerShare",
+        ),
+        PER_SHARE,
+        instant=False,
+    ),
     Concept(
         "dps",
         (
             "CommonStockDividendsPerShareDeclared",
             "CommonStockDividendsPerShareCashPaid",
         ),
-        "USD/shares",
+        PER_SHARE,
         instant=False,
     ),
-    Concept("shares_outstanding", ("CommonStockSharesOutstanding",), "shares", instant=True),
+    Concept(
+        "shares_outstanding",
+        ("CommonStockSharesOutstanding", "ifrs-full:NumberOfSharesOutstanding"),
+        SHARES,
+        instant=True,
+    ),
     # Weighted-average diluted shares; last resort when no total share count is
     # tagged (e.g. companies that only report counts per share class).
     Concept(
         "diluted_shares_weighted",
-        ("WeightedAverageNumberOfDilutedSharesOutstanding",),
-        "shares",
+        (
+            "WeightedAverageNumberOfDilutedSharesOutstanding",
+            "ifrs-full:AdjustedWeightedAverageShares",
+            "ifrs-full:WeightedAverageShares",
+        ),
+        SHARES,
         instant=False,
     ),
     # Cover-page share count; used when the balance sheet doesn't tag one.
     Concept(
         "shares_outstanding_cover",
-        ("EntityCommonStockSharesOutstanding",),
-        "shares",
+        ("dei:EntityCommonStockSharesOutstanding",),
+        SHARES,
         instant=True,
-        taxonomy="dei",
     ),
     Concept(
         "equity",
         (
             "StockholdersEquity",
             "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "ifrs-full:EquityAttributableToOwnersOfParent",
+            "ifrs-full:Equity",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
-    Concept("total_assets", ("Assets",), "USD", instant=True),
-    Concept("current_assets", ("AssetsCurrent",), "USD", instant=True),
-    Concept("current_liabilities", ("LiabilitiesCurrent",), "USD", instant=True),
+    Concept("total_assets", ("Assets", "ifrs-full:Assets"), MONEY, instant=True),
+    Concept("current_assets", ("AssetsCurrent", "ifrs-full:CurrentAssets"), MONEY, instant=True),
+    Concept(
+        "current_liabilities",
+        ("LiabilitiesCurrent", "ifrs-full:CurrentLiabilities"),
+        MONEY,
+        instant=True,
+    ),
     Concept(
         "cash",
         (
             "CashAndCashEquivalentsAtCarryingValue",
             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "ifrs-full:CashAndCashEquivalents",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
     Concept(
@@ -163,8 +230,10 @@ CONCEPTS: tuple[Concept, ...] = (
             "MarketableSecuritiesCurrent",
             "ShortTermInvestments",
             "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+            "ifrs-full:CurrentFinancialAssetsAtFairValueThroughProfitOrLoss",
+            "ifrs-full:OtherCurrentFinancialAssets",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
     Concept(
@@ -172,8 +241,9 @@ CONCEPTS: tuple[Concept, ...] = (
         (
             "AccountsReceivableNetCurrent",
             "ReceivablesNetCurrent",
+            "ifrs-full:TradeAndOtherCurrentReceivables",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
     Concept(
@@ -182,16 +252,19 @@ CONCEPTS: tuple[Concept, ...] = (
             "LongTermDebt",
             "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
+    # IFRS "LongtermBorrowings" is the non-current portion; its current portion is
+    # tagged separately, and short-term borrowings separately again.
     Concept(
         "lt_debt_noncurrent",
         (
             "LongTermDebtNoncurrent",
             "LongTermDebtAndCapitalLeaseObligations",
+            "ifrs-full:LongtermBorrowings",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
     Concept(
@@ -199,13 +272,21 @@ CONCEPTS: tuple[Concept, ...] = (
         (
             "LongTermDebtCurrent",
             "LongTermDebtAndCapitalLeaseObligationsCurrent",
+            "ifrs-full:CurrentPortionOfLongtermBorrowings",
         ),
-        "USD",
+        MONEY,
         instant=True,
     ),
-    Concept("commercial_paper", ("CommercialPaper",), "USD", instant=True),
-    Concept("short_term_borrowings", ("ShortTermBorrowings",), "USD", instant=True),
+    Concept("commercial_paper", ("CommercialPaper",), MONEY, instant=True),
+    Concept(
+        "short_term_borrowings",
+        ("ShortTermBorrowings", "ifrs-full:ShorttermBorrowings"),
+        MONEY,
+        instant=True,
+    ),
 )
+
+CONCEPTS_BY_KEY: dict[str, Concept] = {c.key: c for c in CONCEPTS}
 
 # Tags used to discover the company's fiscal year end dates.
 _ANCHOR_CONCEPTS = ("revenue", "net_income")
@@ -265,14 +346,49 @@ def fiscal_year_for(end: date) -> int:
     return end.year
 
 
-def _annual_entries(facts: dict[str, Any], concept: Concept, tag: str) -> list[dict[str, Any]]:
-    node = facts.get("facts", {}).get(concept.taxonomy, {}).get(tag)
+def _split_tag(tag: str) -> tuple[str, str]:
+    taxonomy, _, name = tag.rpartition(":")
+    return (taxonomy or "us-gaap"), name
+
+
+def _unit_key(concept: Concept, currency: str) -> str:
+    if concept.unit == MONEY:
+        return currency
+    if concept.unit == PER_SHARE:
+        return f"{currency}/shares"
+    return "shares"
+
+
+def reporting_currency(facts: dict[str, Any]) -> str:
+    """The currency the company reports in, judged from its annual revenue/net income.
+
+    Some foreign filers also tag a USD "convenience translation" of the latest
+    year, so count every annual fact rather than taking the first unit seen.
+    """
+    counts: dict[str, int] = {}
+    for key in _ANCHOR_CONCEPTS:
+        for tag in CONCEPTS_BY_KEY[key].tags:
+            taxonomy, name = _split_tag(tag)
+            node = facts.get("facts", {}).get(taxonomy, {}).get(name, {})
+            for unit, entries in node.get("units", {}).items():
+                if "/" in unit:
+                    continue
+                n = sum(1 for e in entries if str(e.get("form", "")).startswith(ANNUAL_FORMS))
+                counts[unit] = counts.get(unit, 0) + n
+    return max(counts, key=lambda u: counts[u]) if counts else "USD"
+
+
+def _annual_entries(
+    facts: dict[str, Any], concept: Concept, tag: str, currency: str
+) -> list[dict[str, Any]]:
+    taxonomy, name = _split_tag(tag)
+    node = facts.get("facts", {}).get(taxonomy, {}).get(name)
     if not node:
         return []
-    entries: list[dict[str, Any]] = node.get("units", {}).get(concept.unit, [])
+    entries: list[dict[str, Any]] = node.get("units", {}).get(_unit_key(concept, currency), [])
     out = []
     for e in entries:
-        if not str(e.get("form", "")).startswith("10-K"):
+        if not str(e.get("form", "")).startswith(ANNUAL_FORMS):
             continue
         if not concept.instant:
             start = date.fromisoformat(e["start"]) if "start" in e else None
@@ -285,14 +401,16 @@ def _annual_entries(facts: dict[str, Any], concept: Concept, tag: str) -> list[d
     return out
 
 
-def fiscal_year_ends(facts: dict[str, Any]) -> list[date]:
+def fiscal_year_ends(facts: dict[str, Any], currency: str | None = None) -> list[date]:
     """Distinct fiscal-year end dates, discovered from annual revenue/net income."""
+    currency = currency or reporting_currency(facts)
     ends: set[date] = set()
-    for concept in CONCEPTS:
-        if concept.key not in _ANCHOR_CONCEPTS:
-            continue
+    for key in _ANCHOR_CONCEPTS:
+        concept = CONCEPTS_BY_KEY[key]
         for tag in concept.tags:
-            ends.update(date.fromisoformat(e["end"]) for e in _annual_entries(facts, concept, tag))
+            ends.update(
+                date.fromisoformat(e["end"]) for e in _annual_entries(facts, concept, tag, currency)
+            )
     # Keep the latest end date per fiscal-year label (guards against odd stubs).
     by_year: dict[int, date] = {}
     for end in ends:
@@ -306,31 +424,34 @@ def _match_period_end(entry_end: date, fy_ends: Iterable[date], cover: bool) -> 
     """Which fiscal-year end does a fact belong to?
 
     Statement facts must end exactly on a fiscal-year end. Cover-page share
-    counts are dated a few weeks after year end, so take the latest FY end
-    within 120 days before them.
+    counts are dated weeks or months after year end (foreign filers' 20-Fs come
+    later than 10-Ks), so take the latest FY end within 200 days before them.
     """
     if not cover:
         return entry_end if entry_end in fy_ends else None
-    candidates = [e for e in fy_ends if 0 <= (entry_end - e).days <= 120]
+    candidates = [e for e in fy_ends if 0 <= (entry_end - e).days <= 200]
     return max(candidates) if candidates else None
 
 
-def extract_annual_facts(facts: dict[str, Any]) -> list[AnnualFact]:
+def extract_annual_facts(facts: dict[str, Any], currency: str | None = None) -> list[AnnualFact]:
     """Resolve every base concept to at most one value per fiscal year.
 
     For each year the first tag in the concept's priority list that has a value
     wins; among that tag's values the most recently filed one wins, so later
-    restatements replace originally reported numbers.
+    restatements replace originally reported numbers. Values stay in the
+    company's reporting currency (see `reporting_currency`).
     """
-    fy_ends = set(fiscal_year_ends(facts))
+    currency = currency or reporting_currency(facts)
+    fy_ends = set(fiscal_year_ends(facts, currency))
     results: list[AnnualFact] = []
     for concept in CONCEPTS:
         chosen: dict[date, AnnualFact] = {}
         for tag in concept.tags:
+            taxonomy, name = _split_tag(tag)
             best_for_tag: dict[date, AnnualFact] = {}
-            for e in _annual_entries(facts, concept, tag):
+            for e in _annual_entries(facts, concept, tag, currency):
                 period_end = _match_period_end(
-                    date.fromisoformat(e["end"]), fy_ends, cover=concept.taxonomy == "dei"
+                    date.fromisoformat(e["end"]), fy_ends, cover=taxonomy == "dei"
                 )
                 if period_end is None or period_end in chosen:
                     continue
@@ -339,7 +460,7 @@ def extract_annual_facts(facts: dict[str, Any]) -> list[AnnualFact]:
                     fiscal_year=fiscal_year_for(period_end),
                     period_end=period_end,
                     value=float(e["val"]),
-                    tag=f"{concept.taxonomy}:{tag}",
+                    tag=f"{taxonomy}:{name}",
                     accn=e.get("accn", ""),
                     filed=date.fromisoformat(e["filed"]),
                     form=e.get("form", ""),

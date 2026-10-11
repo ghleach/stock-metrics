@@ -73,6 +73,9 @@ Overrides survive refreshes and show as `manual` in Data & Sources.
   (XBRL in 10-K filings). Each figure has a priority list of US-GAAP tags, resolved per year,
   because companies change tags over time. When a figure is restated, the most recent filing's
   value is used. See `src/stock_metrics/sources/edgar.py`.
+- **Foreign companies listed in the US** (20-F/40-F filers such as KOF, GFL, NU and DLO) are read from
+  their IFRS tags. Non-USD figures are converted to USD, and ADRs are shown per ADR, using the ratio table in
+  `sources/prices.py`. The dashboard shows a note when either applies.
 - **Prices, splits and dividends** come from Yahoo Finance via `yfinance`.
 - **Split adjustment**: per-share figures and share counts are adjusted for any split
   that happened after the filing they came from.

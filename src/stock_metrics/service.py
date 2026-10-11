@@ -31,8 +31,8 @@ class TickerNotFoundError(LookupError):
 
 
 NO_10K_MESSAGE = (
-    "{ticker} has no annual (10-K) financial data at the SEC. It's probably a foreign "
-    "company, fund or ETF, which this tool doesn't cover."
+    "{ticker} has no annual (10-K, 20-F or 40-F) financial data at the SEC. It's probably "
+    "a fund or ETF, which this tool doesn't cover."
 )
 
 
@@ -45,24 +45,76 @@ class CompanyData:
     base: pd.DataFrame  # fiscal_year x base concept, overrides applied
     metrics: pd.DataFrame  # fiscal_year x metric key
     provenance: pd.DataFrame  # one row per base figure: source, tag, filing, override
+    reporting_currency: str = "USD"  # currency in the filings (figures shown in USD)
+    shares_per_listed_share: float = 1.0  # ADR ratio; 1 for ordinary listings
+    annual_form: str = "10-K"  # 10-K, 20-F or 40-F
 
 
-def build_fact_rows(annual: list[edgar.AnnualFact], history: prices.PriceHistory) -> list[FactRow]:
-    """Split-adjust SEC figures and add FY-end prices and dividend fallbacks."""
+def _fiscal_year_starts(period_ends: dict[int, date]) -> dict[int, date]:
+    """Start of each fiscal year: the previous year's end, or a year earlier if unknown."""
+    starts = {}
+    for fy, end in period_ends.items():
+        prev = period_ends.get(fy - 1)
+        starts[fy] = prev if prev and 300 <= (end - prev).days <= 400 else end - timedelta(days=365)
+    return starts
+
+
+def build_fact_rows(
+    annual: list[edgar.AnnualFact],
+    history: prices.PriceHistory,
+    currency: str = "USD",
+    fx: pd.Series | None = None,
+    shares_per_listed_share: float = 1.0,
+) -> list[FactRow]:
+    """Turn SEC figures into cached rows in USD, per underlying share.
+
+    - Figures reported in another currency are converted to USD: balance-sheet
+      figures at the FY-end rate, income/cash-flow and per-share figures at the
+      average rate over the fiscal year. Years without an exchange rate are dropped.
+    - Per-share figures and share counts are adjusted for later stock splits.
+      Skipped for ADRs, whose Yahoo "splits" are often ADR-ratio changes.
+    - For ADRs, per-share figures are restated per ADR and share counts in ADR
+      equivalents, so EPS and price match what a US holder sees.
+    - FY-end prices (and Yahoo dividends, when SEC has none) are added.
+    """
+    period_ends = {f.fiscal_year: f.period_end for f in annual}
+    starts = _fiscal_year_starts(period_ends)
+    convert = currency.upper() != "USD"
+    fx = fx if fx is not None else pd.Series(dtype=float)
+    is_adr = shares_per_listed_share != 1.0
+
     rows: list[FactRow] = []
-    period_ends: dict[int, date] = {}
     sec_dps_years: set[int] = set()
-
     for f in annual:
         value = f.value
-        factor = prices.split_factor_after(history.splits, f.filed)
-        if f.concept in PER_SHARE_CONCEPTS:
-            value = value / factor
-        elif f.concept in SHARE_COUNT_CONCEPTS:
-            value = value * factor
+        notes = []
+        if not is_adr:
+            factor = prices.split_factor_after(history.splits, f.filed)
+            if f.concept in PER_SHARE_CONCEPTS:
+                value = value / factor
+            elif f.concept in SHARE_COUNT_CONCEPTS:
+                value = value * factor
+            if factor != 1:
+                notes.append(f"split-adjusted x{factor:g}")
+        if is_adr and f.concept in PER_SHARE_CONCEPTS:
+            value *= shares_per_listed_share
+            notes.append(f"per ADR of {shares_per_listed_share:g} shares")
+        elif is_adr and f.concept in SHARE_COUNT_CONCEPTS:
+            value /= shares_per_listed_share
+            notes.append(f"in ADR equivalents (÷{shares_per_listed_share:g})")
+        concept = edgar.CONCEPTS_BY_KEY[f.concept]
+        if convert and concept.unit != edgar.SHARES:
+            rate = (
+                prices.fx_on_or_before(fx, f.period_end)
+                if concept.instant
+                else prices.fx_average(fx, starts[f.fiscal_year], f.period_end)
+            )
+            if rate is None:
+                continue
+            value *= rate
+            notes.append(f"{currency}→USD @ {rate:.4g}")
         if f.concept == "dps":
             sec_dps_years.add(f.fiscal_year)
-        period_ends[f.fiscal_year] = f.period_end
         rows.append(
             FactRow(
                 concept=f.concept,
@@ -70,15 +122,15 @@ def build_fact_rows(annual: list[edgar.AnnualFact], history: prices.PriceHistory
                 period_end=f.period_end.isoformat(),
                 value=value,
                 source="sec",
-                tag=f.tag + (f" (split-adjusted x{factor:g})" if factor != 1 else ""),
+                tag=f.tag + (f" ({'; '.join(notes)})" if notes else ""),
                 accn=f.accn,
                 filed=f.filed.isoformat(),
             )
         )
 
-    years = sorted(period_ends)
-    for i, fy in enumerate(years):
-        end = period_ends[fy]
+    per_share_note = " (ADR)" if is_adr else ""
+    for fy in sorted(period_ends):
+        end, start = period_ends[fy], starts[fy]
         px = prices.price_on_or_before(history.close, end)
         if px is not None:
             rows.append(
@@ -88,12 +140,11 @@ def build_fact_rows(annual: list[edgar.AnnualFact], history: prices.PriceHistory
                     end.isoformat(),
                     px,
                     "yahoo",
-                    "Close on last trading day of FY (split-adjusted)",
+                    "Close on last trading day of FY (split-adjusted)" + per_share_note,
                 )
             )
         # Dividend fallback for years SEC data doesn't tag, only where we have
         # price history covering the whole year.
-        start = period_ends[years[i - 1]] if i > 0 else end - timedelta(days=365)
         has_full_year = not history.close.empty and history.close.index[0] <= pd.Timestamp(start)
         if fy not in sec_dps_years and has_full_year:
             rows.append(
@@ -103,7 +154,8 @@ def build_fact_rows(annual: list[edgar.AnnualFact], history: prices.PriceHistory
                     end.isoformat(),
                     prices.dividends_between(history.dividends, start, end),
                     "yahoo",
-                    "Sum of dividends with ex-date in fiscal year (split-adjusted)",
+                    "Sum of dividends with ex-date in fiscal year (split-adjusted)"
+                    + per_share_note,
                 )
             )
     return rows
@@ -123,11 +175,13 @@ class StockMetricsService:
         settings: Settings,
         edgar_client: edgar.EdgarClient | None = None,
         price_fetcher: Callable[[str], prices.PriceHistory] = prices.fetch_price_history,
+        fx_fetcher: Callable[[str], pd.Series] = prices.fetch_fx_history,
     ) -> None:
         self.settings = settings
         self.store = Store(settings.db_path)
         self.edgar = edgar_client or edgar.EdgarClient(settings.sec_user_agent)
         self._fetch_prices = price_fetcher
+        self._fetch_fx = fx_fetcher
 
     # --- ticker search ---
     def ticker_list(self) -> pd.DataFrame:
@@ -157,11 +211,17 @@ class StockMetricsService:
             if exc.response is not None and exc.response.status_code == 404:
                 raise TickerNotFoundError(NO_10K_MESSAGE.format(ticker=ticker)) from exc
             raise
-        annual = edgar.extract_annual_facts(facts)
+        currency = edgar.reporting_currency(facts)
+        annual = edgar.extract_annual_facts(facts, currency)
         if not annual:
             raise TickerNotFoundError(NO_10K_MESSAGE.format(ticker=ticker))
+        forms = [f.form.split("/")[0] for f in annual]
+        annual_form = max(set(forms), key=forms.count)
+        ratio = prices.SHARES_PER_LISTED_SHARE.get(ticker, 1.0)
         history = self._fetch_prices(ticker)
-        self.store.save_company(ticker, cik, name, build_fact_rows(annual, history))
+        fx = self._fetch_fx(currency)
+        rows = build_fact_rows(annual, history, currency, fx, ratio)
+        self.store.save_company(ticker, cik, name, rows, currency, ratio, annual_form)
 
     def company(self, ticker: str, force_refresh: bool = False) -> CompanyData:
         ticker = ticker.upper()
@@ -172,7 +232,7 @@ class StockMetricsService:
 
         info = self.store.company(ticker)
         assert info is not None
-        cik, name, fetched_at = info
+        cik, name, fetched_at, currency, ratio, annual_form = info
         facts = self.store.facts(ticker)
         overrides = self.store.overrides(ticker)
 
@@ -204,6 +264,9 @@ class StockMetricsService:
             base,
             metrics,
             provenance.sort_values(["concept", "fiscal_year"]),
+            currency,
+            ratio,
+            annual_form,
         )
 
     # --- manual overrides ---

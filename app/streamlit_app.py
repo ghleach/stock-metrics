@@ -164,7 +164,29 @@ def page_dashboard(service: StockMetricsService) -> None:
         return
 
     st.title(f"{company.name} ({company.ticker})")
-    st.caption(f"Data cached {company.fetched_at:%d %b %Y %H:%M} UTC · SEC CIK {company.cik}")
+    st.caption(
+        f"Data cached {company.fetched_at:%d %b %Y %H:%M} UTC · SEC CIK {company.cik} · "
+        f"annual reports on Form {company.annual_form}"
+    )
+    notes = []
+    if company.reporting_currency != "USD":
+        notes.append(
+            f"Reports in **{company.reporting_currency}**; figures are converted to USD "
+            "(balance sheet at the fiscal-year-end rate, income and cash flow at the "
+            "year's average rate), so growth rates include currency movements."
+        )
+    if company.shares_per_listed_share != 1:
+        notes.append(
+            f"Listed in the US as an ADR: per-share figures are per ADR "
+            f"(1 ADR = {company.shares_per_listed_share:g} underlying shares)."
+        )
+    if company.annual_form != "10-K":
+        notes.append(
+            "Foreign filer using international accounting (IFRS) labels: some lines, "
+            "such as operating income, may not be tagged and show as N/M."
+        )
+    if notes:
+        st.info("  \n".join(notes))
     if company.metrics.empty:
         st.warning("No annual 10-K data found for this company.")
         return

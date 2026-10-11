@@ -7,7 +7,8 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 
 | In the MVP | Later phases |
 |---|---|
-| US-listed companies that file 10-Ks with the SEC | Non-US companies |
+| US-listed companies that file 10-Ks with the SEC | Companies with no US listing |
+| Foreign companies listed in the US that file 20-F/40-F (v1.3) | |
 | Annual data, 10+ years where filings allow | Quarterly data and TTM metrics |
 | A single user running the app locally | Hosting, logins, multiple users |
 | Five tabbed metric views, a compare view, data and sources | |
@@ -61,6 +62,9 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 - Figures are as filed. For example, Tesla's FY2025 share count (3.75B) reflects shares issued during 2025.
 - SEC EPS is rounded to cents, so heavily split stocks show coarse early-year EPS.
 - Quick ratio can be understated where a company stops tagging current marketable securities.
+- **Foreign filers** (20-F/40-F) often don't tag operating income under IFRS, so operating margin, EBITDA and ROIC can be N/M. Their 20-F arrives about 4 months after year end, so the latest year lags US companies.
+- **Currency conversion**: non-USD figures use Yahoo FX rates. Balance-sheet figures use the FY-end rate; income, cash-flow and per-share figures use the FY average. Growth rates therefore include currency moves.
+- **ADR ratios** are maintained by hand in `sources/prices.py` (`SHARES_PER_LISTED_SHARE`, currently KOF = 80). Add any new ADR holding there.
 - Yahoo Finance is unofficial. If it breaks, prices and valuations go blank, but the SEC data still works.
 
 ## Acceptance checks (verified by hand against 10-Ks)
@@ -75,4 +79,5 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 1. **MVP (this release):** data pipeline, five metric tabs, compare, sources, corrections, CI.
 2. **v1.1 (done):** peer comparison (up to 4 tickers on one chart, raw or indexed to 100), Excel export, and a plain error for tickers with no 10-K data.
 3. **v1.2 (done):** Sharesight read-only sync (v2 API, client credentials) and a Portfolio page with fundamentals and links into each US stock. The v3 API is still a closed beta, so v2 is used.
-4. **Later:** quarterly and TTM data, daily valuation bands, hosting.
+4. **v1.3 (done):** foreign filers listed in the US (20-F/40-F, IFRS tags). Non-USD figures are converted to USD, and ADR per-share figures are stated per ADR.
+5. **Later:** quarterly and TTM data, daily valuation bands, hosting.
