@@ -259,6 +259,57 @@ def margin_overlay_chart(data: pd.DataFrame) -> go.Figure:
     return _layout(fig, height=440)
 
 
+def index_to_100(series: pd.Series) -> pd.Series:
+    """Rebase a series so its first available value is 100.
+
+    Returns all-NaN if the base value isn't positive (indexing from a loss is meaningless).
+    """
+    s = series.dropna()
+    if s.empty or float(s.iloc[0]) <= 0:
+        return pd.Series(np.nan, index=series.index, dtype=float)
+    return (series / float(s.iloc[0]) * 100).astype(float)
+
+
+def peer_chart(
+    series_by_ticker: dict[str, pd.Series],
+    key: str,
+    indexed: bool = False,
+    chart_type: str = "line",
+) -> go.Figure:
+    """One metric for several companies, raw or indexed to 100 at the first year shown."""
+    metric = METRICS_BY_KEY[key]
+    fig = go.Figure()
+    for i, (ticker, series) in enumerate(series_by_ticker.items()):
+        color = PALETTE[i % len(PALETTE)]
+        y = index_to_100(series) if indexed else series
+        hover = [
+            f"{ticker}: {format_value(v, metric.unit)}"
+            + (f" (index {iv:.0f})" if indexed and not _is_missing(iv) else "")
+            + f" · YoY {format_pct(g)}"
+            for v, iv, g in zip(
+                series.tolist(), y.tolist(), yoy_growth(series).tolist(), strict=True
+            )
+        ]
+        common = {
+            "x": series.index.astype(int),
+            "y": y,
+            "name": ticker,
+            "customdata": hover,
+            "hovertemplate": "%{customdata}<extra></extra>",
+        }
+        if chart_type == "bar":
+            fig.add_bar(marker_color=color, **common)
+        else:
+            fig.add_scatter(mode="lines+markers", line={"color": color, "width": 2.5}, **common)
+    if indexed:
+        fig.add_hline(y=100, line={"color": "rgba(128,128,128,0.6)", "dash": "dot", "width": 1})
+        fig.update_yaxes(title_text="Index (first year = 100)")
+    else:
+        fig.update_yaxes(**_axis_format(metric.unit))
+    fig.update_layout(barmode="group")
+    return _layout(fig, height=440)
+
+
 def formatted_table(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     """Metrics as rows, fiscal years as columns, values formatted for display."""
     rows = {}

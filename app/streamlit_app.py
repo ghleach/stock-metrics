@@ -11,12 +11,15 @@ from stock_metrics.charts import (
     format_pct,
     format_value,
     formatted_table,
+    index_to_100,
     margin_overlay_chart,
     metric_chart,
+    peer_chart,
     subtitle,
     window,
 )
 from stock_metrics.config import ConfigError, get_settings
+from stock_metrics.export import metrics_workbook
 from stock_metrics.metrics import yoy_growth
 from stock_metrics.service import (
     OVERRIDABLE_CONCEPTS,
@@ -203,11 +206,18 @@ def page_dashboard(service: StockMetricsService) -> None:
         st.dataframe(table, use_container_width=True)
         raw = data.copy()
         raw.index.name = "fiscal_year"
-        st.download_button(
+        c1, c2, _ = st.columns([1, 1, 3])
+        c1.download_button(
             "Download metrics (CSV)",
             raw.to_csv().encode(),
             file_name=f"{ticker}_metrics.csv",
             mime="text/csv",
+        )
+        c2.download_button(
+            "Download metrics (Excel)",
+            metrics_workbook(ticker, company.name, data, company.provenance),
+            file_name=f"{ticker}_metrics.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         st.subheader("Source figures")
         st.caption(
@@ -215,6 +225,98 @@ def page_dashboard(service: StockMetricsService) -> None:
             "Manual overrides are marked as source 'manual'."
         )
         render_sources(company)
+
+
+PEER_SNAPSHOT = ["revenue", "net_margin", "roic", "pe", "dividend_yield", "debt_to_equity"]
+
+
+def page_peers(service: StockMetricsService) -> None:
+    st.title("Peer comparison")
+    tickers = load_tickers()
+    names = dict(zip(tickers["ticker"], tickers["name"], strict=True))
+    current = st.session_state.get("ticker", "AAPL")
+    labels = {m.key: m.label for m in METRICS}
+
+    chosen = st.multiselect(
+        "Companies (up to 4)",
+        tickers["ticker"].tolist(),
+        default=[current],
+        max_selections=4,
+        format_func=lambda t: f"{t} — {names.get(t, '')}",
+        key="peers",
+    )
+    c1, c2, c3, c4 = st.columns([2, 1.3, 1, 1.2])
+    key = c1.selectbox(
+        "Metric", list(labels), format_func=labels.get, index=list(labels).index("revenue")
+    )
+    timeframe = c2.segmented_control("Timeframe", list(TIMEFRAMES), default="10Y", key="pt")
+    style = c3.segmented_control("Chart", ["Line", "Bar"], default="Line", key="ps")
+    indexed = c4.toggle(
+        "Index to 100",
+        help="Rebase each company to 100 at the first year shown, to compare growth.",
+    )
+    if not chosen:
+        st.info("Pick one or more companies to compare.")
+        return
+
+    companies: dict[str, CompanyData] = {}
+    with st.spinner("Loading…"):
+        for t in chosen:
+            try:
+                companies[t] = load_company(t, st.session_state.get("refresh", {}).get(t, 0))
+            except TickerNotFoundError as exc:
+                st.warning(str(exc))
+            except Exception as exc:  # one bad ticker shouldn't hide the others
+                st.warning(f"Couldn't load {t}: {exc}")
+    companies = {t: c for t, c in companies.items() if not c.metrics.empty}
+    if not companies:
+        return
+
+    last_year = max(int(c.metrics.index.max()) for c in companies.values())
+    years = TIMEFRAMES[timeframe or "10Y"]
+    first_year = last_year - years + 1 if years else None
+    series = {}
+    for t, c in companies.items():
+        s = c.metrics[key]
+        series[t] = s[s.index >= first_year] if first_year else s
+
+    metric = METRICS_BY_KEY[key]
+    st.markdown(f"**{metric.label}**", help=metric.definition)
+    if indexed and any(index_to_100(s).isna().all() for s in series.values()):
+        st.caption("Companies starting from zero or a negative value can't be indexed.")
+    chart(
+        peer_chart(series, key, indexed=indexed, chart_type=(style or "Line").lower()),
+        key="peer-chart",
+    )
+    st.caption(
+        "Years are fiscal years, which end in different months for different companies "
+        "(e.g. Apple in September, Microsoft in June)."
+    )
+
+    all_years = sorted({int(y) for s in series.values() for y in s.index})
+    table = pd.DataFrame(
+        {
+            t: [format_value(s.get(y), metric.unit) if y in s.index else "–" for y in all_years]
+            for t, s in series.items()
+        },
+        index=[f"FY{y}" for y in all_years],
+    ).T
+    st.dataframe(table, use_container_width=True)
+
+    st.subheader("Latest fiscal year snapshot")
+    snapshot = pd.DataFrame(
+        {
+            t: {
+                "Fiscal year": f"FY{int(c.metrics.index.max())}",
+                **{
+                    labels[k]: format_value(c.metrics[k].iloc[-1], METRICS_BY_KEY[k].unit)
+                    for k in PEER_SNAPSHOT
+                },
+            }
+            for t, c in companies.items()
+        }
+    )
+    st.dataframe(snapshot, use_container_width=True)
 
 
 def page_overrides(service: StockMetricsService) -> None:
@@ -271,6 +373,7 @@ def main() -> None:
                 url_path="dashboard",
                 default=True,
             ),
+            st.Page(lambda: page_peers(service), title="Peers", icon="⚖️", url_path="peers"),
             st.Page(
                 lambda: page_overrides(service),
                 title="Data corrections",

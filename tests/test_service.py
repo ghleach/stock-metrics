@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from stock_metrics.config import Settings
-from stock_metrics.service import StockMetricsService, build_fact_rows
+from stock_metrics.service import StockMetricsService, TickerNotFoundError, build_fact_rows
 from stock_metrics.sources.edgar import SecCompany, extract_annual_facts
 from stock_metrics.sources.prices import PriceHistory
 
@@ -87,3 +87,24 @@ def test_overrides_replace_values_and_survive_refresh(service: StockMetricsServi
 def test_override_rejects_unknown_concept(service: StockMetricsService) -> None:
     with pytest.raises(ValueError, match="Unknown concept"):
         service.import_overrides_csv("ticker,concept,fiscal_year,value\nTEST,pe,2023,10\n")
+
+
+def test_company_without_10k_gives_friendly_error(
+    tmp_path: Path, price_history: PriceHistory
+) -> None:
+    import requests
+
+    class NotFoundEdgar(FakeEdgar):
+        def company_facts(self, cik: int) -> dict[str, Any]:
+            resp = requests.Response()
+            resp.status_code = 404
+            raise requests.HTTPError(response=resp)
+
+    settings = Settings("t t@t.dev", tmp_path / "t.db", 7)
+    svc = StockMetricsService(
+        settings,
+        edgar_client=NotFoundEdgar({}),  # type: ignore[arg-type]
+        price_fetcher=lambda _t: price_history,
+    )
+    with pytest.raises(TickerNotFoundError, match="no annual"):
+        svc.company("TEST")
