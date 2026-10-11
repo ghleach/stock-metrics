@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from stock_metrics.catalog import METRICS, Unit
-from stock_metrics.charts import format_value, metric_chart, window
+from stock_metrics.charts import format_value, index_to_100, metric_chart, peer_chart, window
 from stock_metrics.metrics import compute_metrics
 
 
@@ -39,3 +39,21 @@ def test_every_metric_charts_without_error() -> None:
     for m in METRICS:
         fig = metric_chart(data, m.key)
         assert fig.data
+
+
+def test_index_to_100() -> None:
+    s = pd.Series([float("nan"), 50.0, 75.0], index=[2021, 2022, 2023])
+    out = index_to_100(s)
+    assert out.loc[2022] == 100.0
+    assert out.loc[2023] == 150.0
+    assert index_to_100(pd.Series([-1.0, 2.0], index=[2022, 2023])).isna().all()
+
+
+def test_peer_chart_one_trace_per_company() -> None:
+    a = pd.Series([100.0, 110.0], index=[2022, 2023])
+    b = pd.Series([200.0, 180.0], index=[2022, 2023])
+    fig = peer_chart({"AAA": a, "BBB": b}, "revenue", indexed=True)
+    assert [t.name for t in fig.data] == ["AAA", "BBB"]
+    assert list(fig.data[1].y) == [100.0, 90.0]
+    bars = peer_chart({"AAA": a}, "revenue", chart_type="bar")
+    assert bars.data[0].type == "bar"

@@ -38,11 +38,14 @@ SEC_USER_AGENT="stock-metrics your.name@example.com"
 | Dividends & Shareholder Returns | Dividend per share, yield, payout ratio, shares outstanding |
 | Balance Sheet & Financial Health | Current ratio, quick ratio, debt-to-equity, total debt, cash, equity |
 | Compare | Any two metrics on a dual-axis chart |
-| Data & Sources | Full table, CSV download, and every base figure linked to its SEC filing |
+| Data & Sources | Full table, CSV and Excel download, and every base figure linked to its SEC filing |
 
 Controls: ticker search (type a ticker or company name), timeframe (3Y / 5Y / 10Y / Max),
 line or bar charts, and CAGR trendlines. Hover over any point to see the value and its YoY change. Use the
 camera icon on each chart to download a PNG.
+
+**Peers** (sidebar page): overlay one metric for up to 4 companies, as raw values or indexed
+to 100 at the first year shown, plus a latest-year snapshot table.
 
 **Data corrections** (sidebar page): upload a CSV to override any base figure.
 Overrides survive refreshes and show as `manual` in Data & Sources.
@@ -69,6 +72,7 @@ src/stock_metrics/
   catalog.py                  metric definitions, units, tabs
   metrics.py                  derived-metric formulas (pure functions)
   charts.py                   Plotly figures and number formatting
+  export.py                   Excel workbook export
   service.py                  orchestration: fetch → adjust → cache → compute
   store.py                    SQLite cache and manual overrides
   sources/edgar.py            SEC EDGAR client and XBRL tag mapping

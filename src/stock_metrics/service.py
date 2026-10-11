@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
+import requests
 
 from stock_metrics.config import Settings
 from stock_metrics.metrics import compute_metrics
@@ -27,6 +28,12 @@ TICKER_LIST_MAX_AGE = timedelta(days=30)
 
 class TickerNotFoundError(LookupError):
     pass
+
+
+NO_10K_MESSAGE = (
+    "{ticker} has no annual (10-K) financial data at the SEC. It's probably a foreign "
+    "company, fund or ETF, which this tool doesn't cover."
+)
 
 
 @dataclass(frozen=True)
@@ -144,7 +151,15 @@ class StockMetricsService:
         if found is None:
             raise TickerNotFoundError(f"{ticker} is not in the SEC ticker list.")
         cik, name = found
-        annual = edgar.extract_annual_facts(self.edgar.company_facts(cik))
+        try:
+            facts = self.edgar.company_facts(cik)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                raise TickerNotFoundError(NO_10K_MESSAGE.format(ticker=ticker)) from exc
+            raise
+        annual = edgar.extract_annual_facts(facts)
+        if not annual:
+            raise TickerNotFoundError(NO_10K_MESSAGE.format(ticker=ticker))
         history = self._fetch_prices(ticker)
         self.store.save_company(ticker, cik, name, build_fact_rows(annual, history))
 

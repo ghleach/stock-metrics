@@ -10,8 +10,9 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 | US-listed companies that file 10-Ks with the SEC | Non-US companies |
 | Annual data, 10+ years where filings allow | Quarterly data and TTM metrics |
 | A single user running the app locally | Hosting, logins, multiple users |
-| Five tabbed metric views, a compare view, data and sources | Peer/competitor overlays |
-| CSV export and PNG chart download | Excel export |
+| Five tabbed metric views, a compare view, data and sources | |
+| Peer comparison (v1.1): up to 4 companies, raw or indexed | |
+| CSV and Excel export, PNG chart download | |
 | Manual corrections via CSV upload | Audit history of corrections |
 | | Sharesight portfolio sync (read-only API, plan confirmed) |
 | | Moving averages, daily valuation bands |
@@ -72,6 +73,6 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 ## Roadmap
 
 1. **MVP (this release):** data pipeline, five metric tabs, compare, sources, corrections, CI.
-2. **v1.1:** peer comparison (2–4 tickers on one chart, raw or indexed to 100), Excel export.
+2. **v1.1 (done):** peer comparison (up to 4 tickers on one chart, raw or indexed to 100), Excel export, and a plain error for tickers with no 10-K data.
 3. **v1.2:** Sharesight read-only sync, a portfolio page with links into each stock.
 4. **Later:** quarterly and TTM data, daily valuation bands, hosting.
