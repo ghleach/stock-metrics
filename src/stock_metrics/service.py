@@ -16,7 +16,11 @@ from stock_metrics.sources import edgar, prices
 from stock_metrics.store import FactRow, Store
 
 PER_SHARE_CONCEPTS = {"eps_basic", "eps_diluted", "dps"}
-SHARE_COUNT_CONCEPTS = {"shares_outstanding", "shares_outstanding_cover"}
+SHARE_COUNT_CONCEPTS = {
+    "shares_outstanding",
+    "shares_outstanding_cover",
+    "diluted_shares_weighted",
+}
 OVERRIDABLE_CONCEPTS = sorted({c.key for c in edgar.CONCEPTS} | {"price"})
 TICKER_LIST_MAX_AGE = timedelta(days=30)
 

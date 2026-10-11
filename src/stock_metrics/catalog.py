@@ -209,7 +209,8 @@ METRICS: tuple[MetricDef, ...] = (
         "Shares Outstanding",
         Unit.COUNT,
         Tab.DIVIDENDS,
-        "Shares outstanding at fiscal year end, split-adjusted. "
+        "Shares outstanding at fiscal year end, split-adjusted (weighted-average diluted "
+        "shares if the company doesn't report a total). "
         "Falling = buybacks, rising = dilution.",
         "bar",
     ),

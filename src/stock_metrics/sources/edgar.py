@@ -120,6 +120,14 @@ CONCEPTS: tuple[Concept, ...] = (
         instant=False,
     ),
     Concept("shares_outstanding", ("CommonStockSharesOutstanding",), "shares", instant=True),
+    # Weighted-average diluted shares; last resort when no total share count is
+    # tagged (e.g. companies that only report counts per share class).
+    Concept(
+        "diluted_shares_weighted",
+        ("WeightedAverageNumberOfDilutedSharesOutstanding",),
+        "shares",
+        instant=False,
+    ),
     # Cover-page share count; used when the balance sheet doesn't tag one.
     Concept(
         "shares_outstanding_cover",

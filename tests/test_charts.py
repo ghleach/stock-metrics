@@ -14,6 +14,9 @@ def test_format_value() -> None:
     assert format_value(27.93, Unit.MULTIPLE) == "27.9x"
     assert format_value(15_116_786_000, Unit.COUNT) == "15.12B"
     assert format_value(float("nan"), Unit.RATIO) == "N/M"
+    assert format_value(-0.27, Unit.PER_SHARE) == "-$0.27"
+    assert format_value(0.0, Unit.PER_SHARE) == "$0.00"
+    assert format_value(0.016, Unit.PER_SHARE) == "$0.0160"
 
 
 def test_window() -> None:

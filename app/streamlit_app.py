@@ -85,7 +85,8 @@ def render_snapshot(company: CompanyData) -> None:
     ]
     fy_end = company.provenance["period_end"].dropna().max()
     st.caption(f"Snapshot · FY{fy} (fiscal year ended {fy_end})")
-    cols = st.columns(len(tiles))
+    # Two rows of three keeps values readable on laptop-width windows.
+    cols = [c for _ in range(2) for c in st.columns(3)]
     for col, (label, key, show_growth) in zip(cols, tiles, strict=True):
         unit = METRICS_BY_KEY[key].unit
         delta = None

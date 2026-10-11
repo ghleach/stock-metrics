@@ -79,7 +79,11 @@ def compute_metrics(base: pd.DataFrame) -> pd.DataFrame:
     out["eps_basic"] = _col(b, "eps_basic")
 
     # --- Shares ---
-    shares = _first_available(_col(b, "shares_outstanding"), _col(b, "shares_outstanding_cover"))
+    shares = _first_available(
+        _col(b, "shares_outstanding"),
+        _col(b, "shares_outstanding_cover"),
+        _col(b, "diluted_shares_weighted"),
+    )
     out["shares_outstanding"] = shares
 
     # --- Margins & returns ---

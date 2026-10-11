@@ -122,3 +122,9 @@ def test_liquidity() -> None:
     )
     assert m.loc[2020, "current_ratio"] == pytest.approx(1.5)
     assert m.loc[2020, "quick_ratio"] == pytest.approx(0.6)
+
+
+def test_shares_fall_back_to_weighted_diluted() -> None:
+    m = compute_metrics(base_frame(diluted_shares_weighted=[100.0], price=[5.0]))
+    assert m.loc[2020, "shares_outstanding"] == 100.0
+    assert m.loc[2020, "market_cap"] == 500.0

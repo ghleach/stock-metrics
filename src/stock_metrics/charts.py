@@ -36,7 +36,10 @@ def format_value(v: float | None, unit: Unit) -> str:
             return f"{sign}${a / 1e6:,.1f}M"
         return f"{sign}${a:,.0f}"
     if unit is Unit.PER_SHARE:
-        return f"${v:,.2f}" if abs(v) >= 0.1 else f"${v:,.4f}"
+        sign = "-" if v < 0 else ""
+        a = abs(v)
+        # Tiny split-adjusted amounts (e.g. NVIDIA's early dividends) need more decimals.
+        return f"{sign}${a:,.4f}" if 0 < a < 0.1 else f"{sign}${a:,.2f}"
     if unit is Unit.COUNT:
         return f"{v / 1e9:,.2f}B" if abs(v) >= 1e9 else f"{v / 1e6:,.1f}M"
     if unit is Unit.PERCENT:

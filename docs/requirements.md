@@ -41,7 +41,7 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 | Gross profit | As tagged. Otherwise revenue − cost of revenue. |
 | EBITDA | Operating income + D&A (cash flow statement). |
 | Free cash flow | Operating cash flow − capex. |
-| Shares outstanding | Balance-sheet count at FY end, falling back to the 10-K cover page. |
+| Shares outstanding | Balance-sheet count at FY end, falling back to the 10-K cover page, then to weighted-average diluted shares (e.g. Meta, which only reports per-class counts). |
 | Valuation price | Close on the last trading day of the FY. |
 | P/E, P/S, P/B, P/FCF | Price / diluted EPS. Market cap / revenue, equity, FCF. N/M if the denominator is ≤ 0. |
 | PEG | P/E / (3-year diluted EPS CAGR × 100). N/M if growth ≤ 0. |
@@ -56,6 +56,8 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 ## Known limitations
 
 - Banks and insurers don't report gross profit or current assets, so those metrics are blank.
+- Berkshire Hathaway (and other companies with unusual share classes) report per-share figures that the tool doesn't map, so EPS and valuation ratios are blank.
+- Figures are as filed. For example, Tesla's FY2025 share count (3.75B) reflects shares issued during 2025.
 - SEC EPS is rounded to cents, so heavily split stocks show coarse early-year EPS.
 - Quick ratio can be understated where a company stops tagging current marketable securities.
 - Yahoo Finance is unofficial. If it breaks, prices and valuations go blank, but the SEC data still works.
