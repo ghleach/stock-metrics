@@ -372,7 +372,7 @@ def page_portfolio(service: StockMetricsService) -> None:
         holdings = holdings[holdings["portfolio"] == chosen]
     currency = holdings["currency_code"].iloc[0]
     total = holdings["value"].sum()
-    us_share = holdings.loc[holdings["is_us"], "value"].sum() / total if total else 0.0
+    us_share = holdings.loc[holdings["linkable"], "value"].sum() / total if total else 0.0
     k1, k2, k3 = st.columns(3)
     k1.metric("Total value", f"{currency} {total:,.0f}")
     k2.metric("Holdings", len(holdings))
