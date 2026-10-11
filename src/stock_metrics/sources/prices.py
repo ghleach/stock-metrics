@@ -76,3 +76,36 @@ def dividends_between(dividends: pd.Series, start: date, end: date) -> float:
         return 0.0
     mask = (dividends.index > pd.Timestamp(start)) & (dividends.index <= pd.Timestamp(end))
     return float(dividends.loc[mask].sum())
+
+
+# US listings that represent more than one underlying share (ADRs). Filings report
+# per underlying share; per-share figures are multiplied by this so they're per
+# ADR, matching the US price. Ratios come from the depositary agreements.
+SHARES_PER_LISTED_SHARE: dict[str, float] = {
+    "KOF": 80.0,  # 1 ADS = 10 units; 1 unit = 3 Series B + 5 Series L shares
+}
+
+
+def fetch_fx_history(currency: str) -> pd.Series:
+    """Daily USD value of one unit of `currency` (empty for USD)."""
+    if currency.upper() == "USD":
+        return pd.Series(dtype=float)
+    hist = yf.Ticker(f"{currency.upper()}USD=X").history(period="max", auto_adjust=False)
+    if hist.empty:
+        return pd.Series(dtype=float)
+    return _to_date_index(hist["Close"])
+
+
+def fx_on_or_before(fx: pd.Series, when: date) -> float | None:
+    """Exchange rate for balance-sheet figures (at the period end)."""
+    return price_on_or_before(fx, when)
+
+
+def fx_average(fx: pd.Series, start: date, end: date) -> float | None:
+    """Average daily rate over (start, end], for income and cash-flow figures."""
+    if fx.empty:
+        return None
+    window = fx.loc[(fx.index > pd.Timestamp(start)) & (fx.index <= pd.Timestamp(end))]
+    if len(window) < 20:  # need most of the year to call it an average
+        return None
+    return float(window.mean())

@@ -88,6 +88,19 @@ class Store:
         self._path = path
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Add columns introduced after the first release to existing databases."""
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(companies)")}
+        for column, ddl in (
+            ("reporting_currency", "TEXT NOT NULL DEFAULT 'USD'"),
+            ("shares_per_listed_share", "REAL NOT NULL DEFAULT 1"),
+            ("annual_form", "TEXT NOT NULL DEFAULT '10-K'"),
+        ):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE companies ADD COLUMN {column} {ddl}")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -139,7 +152,16 @@ class Store:
             ).fetchone()
         return datetime.fromisoformat(row[0]) if row else None
 
-    def save_company(self, ticker: str, cik: int, name: str, facts: Iterable[FactRow]) -> None:
+    def save_company(
+        self,
+        ticker: str,
+        cik: int,
+        name: str,
+        facts: Iterable[FactRow],
+        reporting_currency: str = "USD",
+        shares_per_listed_share: float = 1.0,
+        annual_form: str = "10-K",
+    ) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM facts WHERE ticker = ?", (ticker,))
             conn.executemany(
@@ -161,18 +183,41 @@ class Store:
                 ],
             )
             conn.execute(
-                "INSERT INTO companies (ticker, cik, name, fetched_at) VALUES (?, ?, ?, ?) "
+                "INSERT INTO companies (ticker, cik, name, fetched_at, reporting_currency, "
+                "shares_per_listed_share, annual_form) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(ticker) DO UPDATE SET cik = excluded.cik, name = excluded.name, "
-                "fetched_at = excluded.fetched_at",
-                (ticker, cik, name, utcnow()),
+                "fetched_at = excluded.fetched_at, "
+                "reporting_currency = excluded.reporting_currency, "
+                "shares_per_listed_share = excluded.shares_per_listed_share, "
+                "annual_form = excluded.annual_form",
+                (
+                    ticker,
+                    cik,
+                    name,
+                    utcnow(),
+                    reporting_currency,
+                    shares_per_listed_share,
+                    annual_form,
+                ),
             )
 
-    def company(self, ticker: str) -> tuple[int, str, datetime] | None:
+    def company(self, ticker: str) -> tuple[int, str, datetime, str, float, str] | None:
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT cik, name, fetched_at FROM companies WHERE ticker = ?", (ticker,)
+                "SELECT cik, name, fetched_at, reporting_currency, shares_per_listed_share, "
+                "annual_form FROM companies WHERE ticker = ?",
+                (ticker,),
             ).fetchone()
-        return (int(row[0]), str(row[1]), datetime.fromisoformat(row[2])) if row else None
+        if not row:
+            return None
+        return (
+            int(row[0]),
+            str(row[1]),
+            datetime.fromisoformat(row[2]),
+            str(row[3]),
+            float(row[4]),
+            str(row[5]),
+        )
 
     def facts(self, ticker: str) -> pd.DataFrame:
         with self._conn() as conn:

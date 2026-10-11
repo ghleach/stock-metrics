@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -108,3 +109,70 @@ def test_company_without_10k_gives_friendly_error(
     )
     with pytest.raises(TickerNotFoundError, match="no annual"):
         svc.company("TEST")
+
+
+def test_foreign_currency_and_adr_conversion() -> None:
+    import pandas as pd
+
+    from stock_metrics.sources.edgar import AnnualFact
+
+    end, filed = date(2024, 12, 31), date(2025, 4, 1)
+
+    def af(concept: str, value: float) -> AnnualFact:
+        return AnnualFact(concept, 2024, end, value, "ifrs-full:X", "a", filed, "20-F")
+
+    annual = [
+        af("revenue", 1000.0),
+        af("equity", 500.0),
+        af("eps_diluted", 2.0),
+        af("shares_outstanding", 800.0),
+    ]
+    days = pd.bdate_range("2024-01-01", "2024-12-31")
+    # MXN worth 0.05 USD all year except 0.04 on the last day: flows use the
+    # average (~0.05), balance-sheet items the year-end rate (0.04).
+    fx = pd.Series(0.05, index=days)
+    fx.iloc[-1] = 0.04
+    history = PriceHistory(
+        close=pd.Series(80.0, index=days),
+        splits=pd.Series([2.0], index=pd.DatetimeIndex(["2025-06-01"])),
+        dividends=pd.Series(dtype=float),
+    )
+    rows = {r.concept: r for r in build_fact_rows(annual, history, "MXN", fx, 10.0)}
+    avg = fx[fx.index > "2024-01-01"].mean()  # fiscal year is (start, end]
+    assert rows["revenue"].value == pytest.approx(1000 * avg)
+    assert rows["equity"].value == pytest.approx(500 * 0.04)
+    # Per ADR of 10 shares, converted at the average rate; ADRs skip split adjustment.
+    assert rows["eps_diluted"].value == pytest.approx(2.0 * 10 * avg)
+    assert rows["shares_outstanding"].value == pytest.approx(80.0)
+    assert rows["price"].value == 80.0
+    assert "MXN→USD" in (rows["revenue"].tag or "")
+
+
+def test_missing_fx_rate_drops_money_figures() -> None:
+    import pandas as pd
+
+    from stock_metrics.sources.edgar import AnnualFact
+
+    annual = [
+        AnnualFact("revenue", 2024, date(2024, 12, 31), 1.0, "t", "a", date(2025, 4, 1), "20-F")
+    ]
+    empty = PriceHistory(pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float))
+    assert build_fact_rows(annual, empty, "CAD", pd.Series(dtype=float)) == []
+
+
+def test_store_migrates_old_companies_table(tmp_path: Path) -> None:
+    import sqlite3
+
+    from stock_metrics.store import Store
+
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE companies (ticker TEXT PRIMARY KEY, cik INTEGER NOT NULL, "
+        "name TEXT NOT NULL, fetched_at TEXT NOT NULL)"
+    )
+    conn.execute("INSERT INTO companies VALUES ('OLD', 1, 'Old Co', '2026-01-01T00:00:00+00:00')")
+    conn.commit()
+    conn.close()
+    info = Store(db).company("OLD")
+    assert info is not None and info[3:] == ("USD", 1.0, "10-K")
