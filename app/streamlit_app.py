@@ -21,12 +21,14 @@ from stock_metrics.charts import (
 from stock_metrics.config import ConfigError, get_settings
 from stock_metrics.export import metrics_workbook
 from stock_metrics.metrics import yoy_growth
+from stock_metrics.portfolio import PortfolioService, snapshot_row
 from stock_metrics.service import (
     OVERRIDABLE_CONCEPTS,
     CompanyData,
     StockMetricsService,
     TickerNotFoundError,
 )
+from stock_metrics.sources.sharesight import SharesightAuthError
 
 st.set_page_config(page_title="Stock Metrics", page_icon="📈", layout="wide")
 
@@ -319,6 +321,140 @@ def page_peers(service: StockMetricsService) -> None:
     st.dataframe(snapshot, use_container_width=True)
 
 
+PORTFOLIO_SETUP = """
+**Connect Sharesight (read-only)**
+
+1. In Sharesight, open **Account settings → Sharesight API** and create an API client
+   (if you don't see that menu, email Sharesight support and ask for API access on your account).
+2. Copy the **Client ID** and **Client Secret** into this project's `.env` file:
+
+```
+SHARESIGHT_CLIENT_ID=...
+SHARESIGHT_CLIENT_SECRET=...
+```
+
+3. Restart the app, then come back to this page.
+"""
+
+
+def page_portfolio(service: StockMetricsService) -> None:
+    st.title("Portfolio")
+    portfolio = PortfolioService(service)
+    if not portfolio.configured:
+        st.info("Sharesight isn't connected yet.")
+        st.markdown(PORTFOLIO_SETUP)
+        return
+
+    c1, c2 = st.columns([1, 4])
+    try:
+        if c1.button("Sync from Sharesight"):
+            with st.spinner("Syncing holdings…"):
+                n = portfolio.sync()
+            st.success(f"Synced {n} holding(s).")
+        else:
+            portfolio.sync_if_stale()
+    except SharesightAuthError as exc:
+        st.error(str(exc))
+        return
+    except Exception as exc:  # network problems shouldn't crash the page
+        st.error(f"Couldn't reach Sharesight: {exc}")
+    synced = portfolio.synced_at()
+    c2.caption(f"Last synced {synced:%d %b %Y %H:%M} UTC" if synced else "Not synced yet")
+
+    holdings = portfolio.holdings()
+    if holdings.empty:
+        st.info("No holdings found.")
+        return
+
+    names = holdings[["portfolio_id", "portfolio"]].drop_duplicates()
+    if len(names) > 1:
+        chosen = st.selectbox("Portfolio", names["portfolio"].tolist())
+        holdings = holdings[holdings["portfolio"] == chosen]
+    currency = holdings["currency_code"].iloc[0]
+    total = holdings["value"].sum()
+    us_share = holdings.loc[holdings["is_us"], "value"].sum() / total if total else 0.0
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Total value", f"{currency} {total:,.0f}")
+    k2.metric("Holdings", len(holdings))
+    k3.metric("US individual stocks", f"{us_share:.0%} of value")
+
+    with_fundamentals = st.toggle(
+        "Show fundamentals for US holdings",
+        value=True,
+        help="Loads each US company's SEC data (cached after the first load).",
+    )
+    rows = []
+    linkable = holdings[holdings["linkable"]]
+    progress = st.progress(0.0, "Loading company data…") if with_fundamentals else None
+    for i, h in enumerate(holdings.itertuples()):
+        row = {
+            "Symbol": h.symbol,
+            "Name": h.name,
+            "Market": h.market,
+            "Quantity": h.quantity,
+            "Value": h.value,
+            "Weight": h.weight,
+            "Dashboard": f"dashboard?ticker={h.ticker}" if h.linkable else None,
+        }
+        if with_fundamentals and h.linkable:
+            try:
+                company = load_company(h.ticker, 0)
+                snap = snapshot_row(company)
+                row.update(
+                    {
+                        "FY": snap.get("fiscal_year"),
+                        "P/E": snap.get("pe"),
+                        "Div. yield": snap.get("dividend_yield"),
+                        "Net margin": snap.get("net_margin"),
+                        "ROIC": snap.get("roic"),
+                        "Revenue CAGR 5Y": snap.get("revenue_cagr_5y"),
+                    }
+                )
+            except Exception:  # one company failing shouldn't hide the table
+                pass
+        rows.append(row)
+        if progress is not None and len(linkable):
+            progress.progress(min(1.0, (i + 1) / len(holdings)), "Loading company data…")
+    if progress is not None:
+        progress.empty()
+
+    table = pd.DataFrame(rows)
+    pct = st.column_config.NumberColumn(format="percent")
+    st.dataframe(
+        table,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Quantity": st.column_config.NumberColumn(format="%,.0f"),
+            "Value": st.column_config.NumberColumn(f"Value ({currency})", format="%,.0f"),
+            "Weight": pct,
+            "Dashboard": st.column_config.LinkColumn(display_text="Open ↗"),
+            "FY": st.column_config.NumberColumn(format="%d"),
+            "P/E": st.column_config.NumberColumn(format="%.1fx"),
+            "Div. yield": pct,
+            "Net margin": pct,
+            "ROIC": pct,
+            "Revenue CAGR 5Y": pct,
+        },
+    )
+    st.caption(
+        "Fundamentals are for each company's latest fiscal year. Non-US holdings (e.g. ASX "
+        "ETFs) are listed without fundamentals. 'Open ↗' opens the stock in a new tab."
+    )
+
+    if not linkable.empty:
+        c1, c2 = st.columns([3, 1])
+        pick = c1.selectbox(
+            "Open a holding in the dashboard",
+            linkable["ticker"].tolist(),
+            format_func=lambda t: f"{t} — {linkable.set_index('ticker').loc[t, 'name']}",
+        )
+        c2.write("")
+        if c2.button("Open"):
+            st.session_state.ticker = pick
+            st.switch_page(PAGES["dashboard"])
+
+
 def page_overrides(service: StockMetricsService) -> None:
     st.title("Data corrections")
     st.markdown(
@@ -358,31 +494,35 @@ def page_overrides(service: StockMetricsService) -> None:
             st.rerun()
 
 
+PAGES: dict[str, st.Page] = {}
+
+
 def main() -> None:
     try:
         service = get_service()
     except ConfigError as exc:
         st.error(str(exc))
         st.stop()
-    page = st.navigation(
-        [
-            st.Page(
-                lambda: page_dashboard(service),
-                title="Dashboard",
-                icon="📊",
-                url_path="dashboard",
-                default=True,
-            ),
-            st.Page(lambda: page_peers(service), title="Peers", icon="⚖️", url_path="peers"),
-            st.Page(
-                lambda: page_overrides(service),
-                title="Data corrections",
-                icon="✏️",
-                url_path="corrections",
-            ),
-        ]
+    PAGES.update(
+        dashboard=st.Page(
+            lambda: page_dashboard(service),
+            title="Dashboard",
+            icon="📊",
+            url_path="dashboard",
+            default=True,
+        ),
+        peers=st.Page(lambda: page_peers(service), title="Peers", icon="⚖️", url_path="peers"),
+        portfolio=st.Page(
+            lambda: page_portfolio(service), title="Portfolio", icon="💼", url_path="portfolio"
+        ),
+        corrections=st.Page(
+            lambda: page_overrides(service),
+            title="Data corrections",
+            icon="✏️",
+            url_path="corrections",
+        ),
     )
-    page.run()
+    st.navigation(list(PAGES.values())).run()
 
 
 main()

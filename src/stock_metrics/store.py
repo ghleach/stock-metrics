@@ -48,6 +48,21 @@ CREATE TABLE IF NOT EXISTS overrides (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (ticker, concept, fiscal_year)
 );
+CREATE TABLE IF NOT EXISTS sharesight_portfolios (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    currency_code TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sharesight_holdings (
+    portfolio_id INTEGER NOT NULL,
+    holding_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    market TEXT NOT NULL,
+    name TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    value REAL NOT NULL,
+    PRIMARY KEY (portfolio_id, holding_id)
+);
 """
 
 
@@ -198,4 +213,38 @@ class Store:
             conn.execute(
                 "DELETE FROM overrides WHERE ticker = ? AND concept = ? AND fiscal_year = ?",
                 (ticker.upper(), concept, fiscal_year),
+            )
+
+    # --- Sharesight portfolio snapshot ---
+    def replace_portfolio_snapshot(
+        self,
+        portfolios: Iterable[tuple[int, str, str]],
+        holdings: Iterable[tuple[int, int, str, str, str, float, float]],
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM sharesight_holdings")
+            conn.execute("DELETE FROM sharesight_portfolios")
+            conn.executemany(
+                "INSERT INTO sharesight_portfolios (id, name, currency_code) VALUES (?, ?, ?)",
+                portfolios,
+            )
+            conn.executemany(
+                "INSERT INTO sharesight_holdings (portfolio_id, holding_id, symbol, market, "
+                "name, quantity, value) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                holdings,
+            )
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('sharesight_synced_at', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (utcnow(),),
+            )
+
+    def portfolio_snapshot(self) -> pd.DataFrame:
+        with self._conn() as conn:
+            return pd.read_sql_query(
+                "SELECT p.id AS portfolio_id, p.name AS portfolio, p.currency_code, "
+                "h.holding_id, h.symbol, h.market, h.name, h.quantity, h.value "
+                "FROM sharesight_holdings h JOIN sharesight_portfolios p "
+                "ON p.id = h.portfolio_id ORDER BY h.value DESC",
+                conn,
             )
