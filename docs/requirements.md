@@ -14,7 +14,7 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 | Peer comparison (v1.1): up to 4 companies, raw or indexed | |
 | CSV and Excel export, PNG chart download | |
 | Manual corrections via CSV upload | Audit history of corrections |
-| | Sharesight portfolio sync (read-only API, plan confirmed) |
+| Sharesight portfolio sync (v1.2): read-only, Portfolio page | |
 | | Moving averages, daily valuation bands |
 
 ## Decisions
@@ -29,7 +29,7 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 | Refresh | Fetched on first view, cached 7 days, plus a manual "Refresh data" button. |
 | Devices | Desktop browsers. |
 | Performance | Charts render in under 1.5s from cache. First fetch of a company takes a few seconds. |
-| Secrets | SEC contact email (and later the Sharesight token) live in a git-ignored `.env`. |
+| Secrets | SEC contact email and Sharesight Client ID/Secret live in a git-ignored `.env`. |
 | CI | GitHub Actions: ruff (lint and format), mypy (types), pytest. |
 
 ## Metric definitions
@@ -74,5 +74,5 @@ for the MVP. Guiding principles: **cheap, simple, quick**, and built to grow.
 
 1. **MVP (this release):** data pipeline, five metric tabs, compare, sources, corrections, CI.
 2. **v1.1 (done):** peer comparison (up to 4 tickers on one chart, raw or indexed to 100), Excel export, and a plain error for tickers with no 10-K data.
-3. **v1.2:** Sharesight read-only sync, a portfolio page with links into each stock.
+3. **v1.2 (done):** Sharesight read-only sync (v2 API, client credentials) and a Portfolio page with fundamentals and links into each US stock. The v3 API is still a closed beta, so v2 is used.
 4. **Later:** quarterly and TTM data, daily valuation bands, hosting.

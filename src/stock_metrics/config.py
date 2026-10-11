@@ -26,6 +26,12 @@ class Settings:
     sec_user_agent: str
     db_path: Path
     cache_days: int
+    sharesight_client_id: str | None = None
+    sharesight_client_secret: str | None = None
+
+    @property
+    def sharesight_configured(self) -> bool:
+        return bool(self.sharesight_client_id and self.sharesight_client_secret)
 
 
 class ConfigError(RuntimeError):
@@ -47,4 +53,6 @@ def get_settings() -> Settings:
         sec_user_agent=user_agent,
         db_path=db,
         cache_days=int(os.environ.get("STOCK_METRICS_CACHE_DAYS", "7")),
+        sharesight_client_id=os.environ.get("SHARESIGHT_CLIENT_ID", "").strip() or None,
+        sharesight_client_secret=os.environ.get("SHARESIGHT_CLIENT_SECRET", "").strip() or None,
     )

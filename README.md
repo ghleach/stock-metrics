@@ -28,6 +28,19 @@ Put yours in `.env`, which is git-ignored:
 SEC_USER_AGENT="stock-metrics your.name@example.com"
 ```
 
+### Sharesight (optional)
+
+The Portfolio page uses Sharesight's v2 API with the OAuth client-credentials grant, read-only.
+In Sharesight, go to **Account settings → Sharesight API** and create an API client. If that menu
+is missing, ask Sharesight support to enable API access. Then add the credentials to `.env`:
+
+```
+SHARESIGHT_CLIENT_ID=...
+SHARESIGHT_CLIENT_SECRET=...
+```
+
+Holdings sync automatically when they're more than 7 days old, or on demand with "Sync from Sharesight".
+
 ## What's in the app
 
 | Tab | Metrics |
@@ -46,6 +59,10 @@ camera icon on each chart to download a PNG.
 
 **Peers** (sidebar page): overlay one metric for up to 4 companies, as raw values or indexed
 to 100 at the first year shown, plus a latest-year snapshot table.
+
+**Portfolio** (sidebar page): read-only sync of your Sharesight holdings with value, weight and
+latest-year fundamentals (P/E, yield, net margin, ROIC, 5-year revenue CAGR) for US stocks, and a
+link from each US holding to its dashboard. Non-US holdings (e.g. ASX ETFs) are listed only.
 
 **Data corrections** (sidebar page): upload a CSV to override any base figure.
 Overrides survive refreshes and show as `manual` in Data & Sources.
@@ -73,10 +90,12 @@ src/stock_metrics/
   metrics.py                  derived-metric formulas (pure functions)
   charts.py                   Plotly figures and number formatting
   export.py                   Excel workbook export
+  portfolio.py                Sharesight sync and holdings table
   service.py                  orchestration: fetch → adjust → cache → compute
   store.py                    SQLite cache and manual overrides
   sources/edgar.py            SEC EDGAR client and XBRL tag mapping
   sources/prices.py           Yahoo Finance prices, splits, dividends
+  sources/sharesight.py       Sharesight API client (read-only)
 tests/                        pytest suite (no network)
 docs/requirements.md          MVP requirements and decisions
 ```
