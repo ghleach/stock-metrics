@@ -58,7 +58,7 @@ def load_company(ticker: str, refresh_token: int) -> CompanyData:
 
 
 def chart(fig: object, key: str) -> None:
-    st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG, key=key)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=key)
 
 
 def render_metric_grid(
@@ -116,7 +116,7 @@ def render_sources(company: CompanyData) -> None:
             ["concept", "fiscal_year", "value", "source", "tag", "filed", "filing", "override_note"]
         ],
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={
             "filing": st.column_config.LinkColumn("SEC filing", display_text="open"),
             "value": st.column_config.NumberColumn(format="%.4g"),
@@ -234,7 +234,7 @@ def page_dashboard(service: StockMetricsService) -> None:
     with tabs[-1]:
         st.subheader("All metrics")
         table = formatted_table(data, [m.key for m in METRICS])
-        st.dataframe(table, use_container_width=True)
+        st.dataframe(table, width="stretch")
         raw = data.copy()
         raw.index.name = "fiscal_year"
         c1, c2, _ = st.columns([1, 1, 3])
@@ -332,7 +332,7 @@ def page_peers(service: StockMetricsService) -> None:
         },
         index=[f"FY{y}" for y in all_years],
     ).T
-    st.dataframe(table, use_container_width=True)
+    st.dataframe(table, width="stretch")
 
     st.subheader("Latest fiscal year snapshot")
     snapshot = pd.DataFrame(
@@ -347,7 +347,7 @@ def page_peers(service: StockMetricsService) -> None:
             for t, c in companies.items()
         }
     )
-    st.dataframe(snapshot, use_container_width=True)
+    st.dataframe(snapshot, width="stretch")
 
 
 PORTFOLIO_SETUP = """
@@ -452,7 +452,7 @@ def page_portfolio(service: StockMetricsService) -> None:
     st.dataframe(
         table,
         hide_index=True,
-        use_container_width=True,
+        width="stretch",
         column_config={
             "Quantity": st.column_config.NumberColumn(format="%,.0f"),
             "Value": st.column_config.NumberColumn(f"Value ({currency})", format="%,.0f"),
@@ -511,7 +511,7 @@ def page_overrides(service: StockMetricsService) -> None:
     if current.empty:
         st.info("None yet.")
         return
-    st.dataframe(current, hide_index=True, use_container_width=True)
+    st.dataframe(current, hide_index=True, width="stretch")
     with st.form("delete"):
         labels = [f"{r.ticker} · {r.concept} · FY{r.fiscal_year}" for r in current.itertuples()]
         choice = st.selectbox(
