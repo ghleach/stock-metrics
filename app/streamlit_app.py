@@ -133,19 +133,41 @@ def page_dashboard(service: StockMetricsService) -> None:
     if st.session_state.ticker not in names:
         st.session_state.ticker = "AAPL"
 
-    # Build "TICKER — Name" labels as the option values so Streamlit's built-in
-    # search matches on both ticker and company name, not just the ticker alone.
+    # Custom search: ticker prefix match first, then name contains.
+    # st.selectbox's built-in search does fuzzy substring matching across the whole
+    # string, so "CRM" matches "CRitical Metals" before Salesforce. We replace it
+    # with a text_input filter that ranks exact ticker prefix matches to the top.
+    all_labels = [f"{t} — {names[t]}" for t in names]
     label_to_ticker = {f"{t} — {names[t]}": t for t in names}
     ticker_to_label = {v: k for k, v in label_to_ticker.items()}
-    options = list(label_to_ticker.keys())
-    current_label = ticker_to_label.get(st.session_state.ticker, options[0])
 
     with st.sidebar:
-        selected_label = st.selectbox(
+        query = st.text_input(
             "Company",
-            options,
-            index=options.index(current_label),
-            help="Type a ticker or company name to search.",
+            value="",
+            placeholder=f"{st.session_state.ticker} — {names.get(st.session_state.ticker, '')}",
+            help="Type a ticker or company name to filter, then pick from the list below.",
+        )
+        q = query.strip().upper()
+        if q:
+            # Ticker exact match first, then ticker prefix, then name contains
+            exact   = [l for l in all_labels if label_to_ticker[l] == q]
+            prefix  = [l for l in all_labels if label_to_ticker[l].startswith(q) and l not in exact]
+            name_m  = [l for l in all_labels if q in names[label_to_ticker[l]].upper()
+                       and l not in exact and l not in prefix]
+            filtered = exact + prefix + name_m
+        else:
+            filtered = all_labels
+
+        current_label = ticker_to_label.get(st.session_state.ticker, filtered[0] if filtered else all_labels[0])
+        if current_label not in filtered:
+            filtered = [current_label] + filtered
+
+        selected_label = st.selectbox(
+            "Select",
+            filtered,
+            index=0 if q else filtered.index(current_label),
+            label_visibility="collapsed",
         )
         st.session_state.ticker = label_to_ticker[selected_label]
         timeframe = st.segmented_control("Timeframe", list(TIMEFRAMES), default="10Y")
