@@ -127,21 +127,27 @@ def render_sources(company: CompanyData) -> None:
 
 def page_dashboard(service: StockMetricsService) -> None:
     tickers = load_tickers()
-    options = tickers["ticker"].tolist()
     names = dict(zip(tickers["ticker"], tickers["name"], strict=True))
     if "ticker" not in st.session_state:
         st.session_state.ticker = st.query_params.get("ticker", "AAPL").upper()
     if st.session_state.ticker not in names:
         st.session_state.ticker = "AAPL"
 
+    # Build "TICKER — Name" labels as the option values so Streamlit's built-in
+    # search matches on both ticker and company name, not just the ticker alone.
+    label_to_ticker = {f"{t} — {names[t]}": t for t in names}
+    ticker_to_label = {v: k for k, v in label_to_ticker.items()}
+    options = list(label_to_ticker.keys())
+    current_label = ticker_to_label.get(st.session_state.ticker, options[0])
+
     with st.sidebar:
-        st.selectbox(
+        selected_label = st.selectbox(
             "Company",
             options,
-            key="ticker",
-            format_func=lambda t: f"{t} — {names.get(t, '')}",
+            index=options.index(current_label),
             help="Type a ticker or company name to search.",
         )
+        st.session_state.ticker = label_to_ticker[selected_label]
         timeframe = st.segmented_control("Timeframe", list(TIMEFRAMES), default="10Y")
         chart_choice = st.segmented_control("Chart style", ["Auto", "Line", "Bar"], default="Auto")
         show_trend = st.toggle("CAGR trendlines & valuation bands", value=True)
