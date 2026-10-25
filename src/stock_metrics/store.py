@@ -128,6 +128,8 @@ class Store:
     # --- ticker list ---
     def replace_tickers(self, rows: Iterable[tuple[str, int, str]]) -> None:
         with self._conn() as conn:
+            # Delete then re-insert within the same transaction: if the SEC endpoint
+            # fails mid-way the whole block rolls back, leaving the table intact.
             conn.execute("DELETE FROM tickers")
             conn.executemany(
                 "INSERT OR REPLACE INTO tickers (ticker, cik, name) VALUES (?, ?, ?)", rows

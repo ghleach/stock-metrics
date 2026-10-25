@@ -185,6 +185,13 @@ def page_dashboard(service: StockMetricsService) -> None:
             "Foreign filer using international accounting (IFRS) labels: some lines, "
             "such as operating income, may not be tagged and show as N/M."
         )
+        if company.shares_per_listed_share == 1.0:
+            notes.append(
+                f"**{company.ticker}** files as a foreign issuer and may be listed as an ADR. "
+                "If 1 ADR represents more than 1 underlying share, per-share figures (EPS, DPS) "
+                "and valuation multiples (P/E, P/B) may not match the listed price. "
+                "Check the depositary agreement and use Data corrections to override if needed."
+            )
     if notes:
         st.info("  \n".join(notes))
     if company.metrics.empty:
@@ -495,6 +502,7 @@ def page_overrides(service: StockMetricsService) -> None:
             n = service.import_overrides_csv(upload.getvalue())
             st.success(f"Imported {n} correction(s).")
             load_company.clear()
+            st.rerun()
         except ValueError as exc:
             st.error(str(exc))
 

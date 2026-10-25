@@ -231,7 +231,8 @@ class StockMetricsService:
             self.refresh(ticker)
 
         info = self.store.company(ticker)
-        assert info is not None
+        if info is None:
+            raise RuntimeError(f"Company {ticker} not found after refresh — this is a bug.")
         cik, name, fetched_at, currency, ratio, annual_form = info
         facts = self.store.facts(ticker)
         overrides = self.store.overrides(ticker)

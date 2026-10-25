@@ -7,12 +7,15 @@ split-adjusted too.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -107,5 +110,12 @@ def fx_average(fx: pd.Series, start: date, end: date) -> float | None:
         return None
     window = fx.loc[(fx.index > pd.Timestamp(start)) & (fx.index <= pd.Timestamp(end))]
     if len(window) < 20:  # need most of the year to call it an average
+        _log.warning(
+            "FX average unavailable for %s–%s: only %d trading days of rates (need 20+); "
+            "fiscal year figures for this period will be dropped.",
+            start,
+            end,
+            len(window),
+        )
         return None
     return float(window.mean())

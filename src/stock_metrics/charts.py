@@ -105,10 +105,14 @@ def _layout(fig: go.Figure, height: int = 320) -> go.Figure:
 
 def _hover_text(series: pd.Series, unit: Unit) -> list[str]:
     yoy = yoy_growth(series)
-    return [
-        f"{format_value(v, unit)} (YoY {format_pct(g)})"
-        for v, g in zip(series.tolist(), yoy.tolist(), strict=True)
-    ]
+    prev = series.shift(1)
+    result = []
+    for v, g, p in zip(series.tolist(), yoy.tolist(), prev.tolist(), strict=True):
+        text = f"{format_value(v, unit)} (YoY {format_pct(g)})"
+        if not _is_missing(g) and not _is_missing(p) and p < 0:
+            text += " *"
+        result.append(text)
+    return result
 
 
 def metric_chart(

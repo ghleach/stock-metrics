@@ -109,9 +109,9 @@ def compute_metrics(base: pd.DataFrame) -> pd.DataFrame:
     out["equity"] = equity
 
     pretax = _col(b, "pretax_income")
-    tax_rate = _div(_col(b, "income_tax"), pretax).clip(0, 0.5).fillna(DEFAULT_TAX_RATE)
+    tax_rate = _div(_col(b, "income_tax"), pretax).clip(0, 1.0).fillna(DEFAULT_TAX_RATE)
     invested_capital = total_debt.fillna(0) + equity - cash.fillna(0)
-    out["roic"] = _div(operating_income * (1 - tax_rate), invested_capital)
+    out["roic"] = _div(operating_income * (1 - tax_rate), invested_capital.mask(invested_capital <= 0))
 
     # --- Valuation ---
     market_cap = price * shares
