@@ -10,11 +10,16 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from stock_metrics.catalog import METRICS_BY_KEY, MetricDef, Unit
-from stock_metrics.metrics import series_cagr, yoy_growth
+from stock_metrics.metrics import TTM_FISCAL_YEAR, drop_ttm, series_cagr, yoy_growth
 
 # Colour-blind-safe categorical palette (Okabe-Ito order, minus yellow).
 PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9"]
 GROWTH_UNITS = {Unit.CURRENCY, Unit.PER_SHARE, Unit.COUNT}
+
+
+def _fy_label(fy: int) -> str:
+    """Format a fiscal year integer as a label; TTM sentinel → 'TTM'."""
+    return "TTM" if fy == TTM_FISCAL_YEAR else str(fy)
 
 
 def _is_missing(v: float | None) -> bool:
@@ -54,11 +59,16 @@ def format_pct(v: float | None) -> str:
 
 
 def window(df: pd.DataFrame, years: int | None) -> pd.DataFrame:
-    """Last `years` fiscal years (None = all)."""
+    """Last `years` fiscal years (None = all), always including the TTM row."""
     if df.empty or years is None:
         return df
-    result: pd.DataFrame = df[df.index > df.index.max() - years]
-    return result
+    # Anchor on the most recent *annual* year, not TTM (9999), to avoid
+    # window(df, 5) filtering out all annual rows when TTM is the index max.
+    annual_index = df.index[df.index < TTM_FISCAL_YEAR]
+    if annual_index.empty:
+        return df
+    anchor = int(annual_index.max())
+    return df[df.index > anchor - years]
 
 
 def _axis_format(unit: Unit) -> dict[str, str]:
@@ -79,14 +89,17 @@ def subtitle(series: pd.Series, metric: MetricDef) -> str:
     s = series.dropna()
     if s.empty:
         return "No data"
-    latest = f"FY{int(s.index[-1])}: {format_value(float(s.iloc[-1]), metric.unit)}"
+    last_fy = int(s.index[-1])
+    label = "TTM" if last_fy == TTM_FISCAL_YEAR else f"FY{last_fy}"
+    latest = f"{label}: {format_value(float(s.iloc[-1]), metric.unit)}"
     if metric.unit in GROWTH_UNITS:
-        g = series_cagr(s)
-        if not _is_missing(g):
-            years = int(s.index[-1] - s.index[0])
+        s_annual = drop_ttm(s)
+        g = series_cagr(s_annual)
+        if not _is_missing(g) and len(s_annual) >= 2:
+            years = int(s_annual.index[-1] - s_annual.index[0])
             return f"{latest} · {years}-yr CAGR {format_pct(g)}"
         return latest
-    return f"{latest} · avg {format_value(float(s.mean()), metric.unit)}"
+    return f"{latest} · avg {format_value(float(drop_ttm(s).mean()), metric.unit)}"
 
 
 def _layout(fig: go.Figure, height: int = 320) -> go.Figure:
@@ -95,7 +108,7 @@ def _layout(fig: go.Figure, height: int = 320) -> go.Figure:
         margin={"l": 10, "r": 10, "t": 30, "b": 10},
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
-        xaxis={"dtick": 1, "tickformat": "d", "title": None},
+        xaxis={"type": "category", "title": None},
         plot_bgcolor="rgba(0,0,0,0)",
         bargap=0.25,
     )
@@ -107,11 +120,14 @@ def _hover_text(series: pd.Series, unit: Unit) -> list[str]:
     yoy = yoy_growth(series)
     prev = series.shift(1)
     result = []
-    for v, g, p in zip(series.tolist(), yoy.tolist(), prev.tolist(), strict=True):
-        text = f"{format_value(v, unit)} (YoY {format_pct(g)})"
-        if not _is_missing(g) and not _is_missing(p) and p < 0:
-            text += " *"
-        result.append(text)
+    for fy, v, g, p in zip(series.index, series.tolist(), yoy.tolist(), prev.tolist(), strict=True):
+        if int(fy) == TTM_FISCAL_YEAR:
+            result.append(f"{format_value(v, unit)} (TTM)")
+        else:
+            text = f"{format_value(v, unit)} (YoY {format_pct(g)})"
+            if not _is_missing(g) and not _is_missing(p) and p < 0:
+                text += " *"
+            result.append(text)
     return result
 
 
@@ -126,7 +142,7 @@ def metric_chart(
     metric = METRICS_BY_KEY[key]
     series = data[key] if key in data.columns else pd.Series(dtype=float)
     kind = metric.default_chart if chart_type == "auto" else chart_type
-    x = series.index.astype(int)
+    x = [_fy_label(fy) for fy in series.index]
     hover = _hover_text(series, metric.unit)
 
     fig = go.Figure()
@@ -151,13 +167,14 @@ def metric_chart(
         )
 
     s = series.dropna()
-    if show_trend and metric.unit in GROWTH_UNITS and len(s) >= 3:
-        g = series_cagr(s)
+    s_trend = drop_ttm(s)  # trendline uses annual data only
+    if show_trend and metric.unit in GROWTH_UNITS and len(s_trend) >= 3:
+        g = series_cagr(s_trend)
         if not _is_missing(g):
-            years = s.index - s.index[0]
-            trend = float(s.iloc[0]) * (1 + g) ** years
+            years = s_trend.index - s_trend.index[0]
+            trend = float(s_trend.iloc[0]) * (1 + g) ** years
             fig.add_scatter(
-                x=s.index.astype(int),
+                x=[_fy_label(fy) for fy in s_trend.index],
                 y=trend,
                 name=f"CAGR {format_pct(g)}",
                 mode="lines",
@@ -166,7 +183,7 @@ def metric_chart(
             )
     if show_band and metric.unit is Unit.MULTIPLE and len(s) >= 3:
         mean, std = float(s.mean()), float(s.std())
-        xs = list(s.index.astype(int))
+        xs = [_fy_label(fy) for fy in s.index]
         fig.add_scatter(
             x=xs + xs[::-1],
             y=[mean + std] * len(xs) + [mean - std] * len(xs),
@@ -199,7 +216,7 @@ def dual_axis_chart(data: pd.DataFrame, left: str, right: str) -> go.Figure:
         series = data[key] if key in data.columns else pd.Series(dtype=float)
         hover = _hover_text(series, metric.unit)
         common = {
-            "x": series.index.astype(int),
+            "x": [_fy_label(fy) for fy in series.index],
             "y": series,
             "name": metric.label,
             "customdata": hover,
@@ -222,7 +239,7 @@ def dual_axis_chart(data: pd.DataFrame, left: str, right: str) -> go.Figure:
 def margin_overlay_chart(data: pd.DataFrame) -> go.Figure:
     """Revenue and profit bars with their margins as lines on a second axis."""
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    x = data.index.astype(int)
+    x = [_fy_label(fy) for fy in data.index]
     bars = [
         ("revenue", None),
         ("gross_profit", "gross_margin"),
@@ -295,7 +312,7 @@ def peer_chart(
             )
         ]
         common = {
-            "x": series.index.astype(int),
+            "x": [_fy_label(fy) for fy in series.index],
             "y": y,
             "name": ticker,
             "customdata": hover,
@@ -322,5 +339,5 @@ def formatted_table(data: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
             continue
         unit = METRICS_BY_KEY[key].unit
         rows[METRICS_BY_KEY[key].label] = [format_value(v, unit) for v in data[key].tolist()]
-    table = pd.DataFrame(rows, index=[f"FY{int(y)}" for y in data.index]).T
+    table = pd.DataFrame(rows, index=[_fy_label(int(y)) for y in data.index]).T
     return table.replace({np.nan: "N/M"})

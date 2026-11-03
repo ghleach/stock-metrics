@@ -7,6 +7,7 @@ import streamlit as st
 
 from stock_metrics.catalog import METRICS, METRICS_BY_KEY, Tab, metrics_for_tab
 from stock_metrics.charts import (
+    _fy_label,
     dual_axis_chart,
     format_pct,
     format_value,
@@ -20,7 +21,7 @@ from stock_metrics.charts import (
 )
 from stock_metrics.config import ConfigError, get_settings
 from stock_metrics.export import metrics_workbook
-from stock_metrics.metrics import yoy_growth
+from stock_metrics.metrics import TTM_FISCAL_YEAR, yoy_growth
 from stock_metrics.portfolio import PortfolioService, snapshot_row
 from stock_metrics.service import (
     OVERRIDABLE_CONCEPTS,
@@ -89,7 +90,9 @@ def render_snapshot(company: CompanyData) -> None:
         ("Debt / Equity", "debt_to_equity", False),
     ]
     fy_end = company.provenance["period_end"].dropna().max()
-    st.caption(f"Snapshot · FY{fy} (fiscal year ended {fy_end})")
+    fy_display = _fy_label(fy)
+    period_note = "trailing twelve months" if fy == TTM_FISCAL_YEAR else f"fiscal year ended {fy_end}"
+    st.caption(f"Snapshot · {fy_display} ({period_note})")
     # Two rows of three keeps values readable on laptop-width windows.
     cols = [c for _ in range(2) for c in st.columns(3)]
     for col, (label, key, show_growth) in zip(cols, tiles, strict=True):
@@ -331,7 +334,11 @@ def page_peers(service: StockMetricsService) -> None:
     if not companies:
         return
 
-    last_year = max(int(c.metrics.index.max()) for c in companies.values())
+    # Use the most recent *annual* year (not TTM sentinel 9999) as the anchor
+    last_year = max(
+        int(max((y for y in c.metrics.index if int(y) < TTM_FISCAL_YEAR), default=0))
+        for c in companies.values()
+    )
     years = TIMEFRAMES[timeframe or "10Y"]
     first_year = last_year - years + 1 if years else None
     series = {}
@@ -358,7 +365,7 @@ def page_peers(service: StockMetricsService) -> None:
             t: [format_value(s.get(y), metric.unit) if y in s.index else "–" for y in all_years]
             for t, s in series.items()
         },
-        index=[f"FY{y}" for y in all_years],
+        index=[_fy_label(y) for y in all_years],
     ).T
     st.dataframe(table, width="stretch")
 
@@ -366,7 +373,7 @@ def page_peers(service: StockMetricsService) -> None:
     snapshot = pd.DataFrame(
         {
             t: {
-                "Fiscal year": f"FY{int(c.metrics.index.max())}",
+                "Fiscal year": _fy_label(int(c.metrics.index.max())),
                 **{
                     labels[k]: format_value(c.metrics[k].iloc[-1], METRICS_BY_KEY[k].unit)
                     for k in PEER_SNAPSHOT

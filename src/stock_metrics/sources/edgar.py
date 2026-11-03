@@ -474,3 +474,141 @@ def extract_annual_facts(facts: dict[str, Any], currency: str | None = None) -> 
             chosen.update(best_for_tag)
         results.extend(chosen.values())
     return results
+
+
+# ---------------------------------------------------------------------------
+# Quarterly (10-Q) extraction and TTM aggregation
+# ---------------------------------------------------------------------------
+
+TTM_FISCAL_YEAR = 9999  # Sentinel used for trailing-twelve-months rows
+
+# Quarterly periods are ~13 weeks; allow some slack for short/long quarters.
+MIN_QUARTERLY_DAYS = 70
+MAX_QUARTERLY_DAYS = 100
+
+QUARTERLY_FORMS = ("10-Q",)
+
+
+@dataclass(frozen=True)
+class QuarterlyFact:
+    """One base figure for one fiscal quarter, with provenance."""
+
+    concept: str
+    period_end: date
+    value: float
+    tag: str
+    accn: str
+    filed: date
+    form: str
+
+
+def _quarterly_entries(
+    facts: dict[str, Any], concept: Concept, tag: str, currency: str
+) -> list[dict[str, Any]]:
+    """Like _annual_entries but filters for 10-Q and ~90-day periods."""
+    taxonomy, name = _split_tag(tag)
+    node = facts.get("facts", {}).get(taxonomy, {}).get(name)
+    if not node:
+        return []
+    entries: list[dict[str, Any]] = node.get("units", {}).get(_unit_key(concept, currency), [])
+    out = []
+    for e in entries:
+        if not str(e.get("form", "")).startswith(QUARTERLY_FORMS):
+            continue
+        if not concept.instant:
+            start = date.fromisoformat(e["start"]) if "start" in e else None
+            if start is None:
+                continue
+            days = (date.fromisoformat(e["end"]) - start).days
+            if not MIN_QUARTERLY_DAYS <= days <= MAX_QUARTERLY_DAYS:
+                continue
+        out.append(e)
+    return out
+
+
+def extract_quarterly_facts(
+    facts: dict[str, Any], currency: str | None = None
+) -> list[QuarterlyFact]:
+    """Extract per-quarter facts from SEC XBRL 10-Q filings.
+
+    For each concept the same tag-priority logic as `extract_annual_facts`
+    applies: first tag with any data wins; most-recently-filed value wins for
+    duplicate period ends.
+    """
+    currency = currency or reporting_currency(facts)
+    results: list[QuarterlyFact] = []
+    for concept in CONCEPTS:
+        chosen: dict[date, QuarterlyFact] = {}  # keyed by period_end
+        for tag in concept.tags:
+            taxonomy, name = _split_tag(tag)
+            for e in _quarterly_entries(facts, concept, tag, currency):
+                period_end = date.fromisoformat(e["end"])
+                qf = QuarterlyFact(
+                    concept=concept.key,
+                    period_end=period_end,
+                    value=float(e["val"]),
+                    tag=f"{taxonomy}:{name}",
+                    accn=e.get("accn", ""),
+                    filed=date.fromisoformat(e["filed"]),
+                    form=e.get("form", ""),
+                )
+                current = chosen.get(period_end)
+                if current is None or qf.filed > current.filed:
+                    chosen[period_end] = qf
+            if chosen:
+                break  # first tag with data wins; don't merge across tags
+        results.extend(chosen.values())
+    return results
+
+
+def compute_ttm_facts(quarterly: list[QuarterlyFact]) -> list[QuarterlyFact]:
+    """Aggregate quarterly facts into one TTM fact per concept.
+
+    Flow concepts (instant=False): sum the four most-recent distinct quarters.
+    Instant/balance-sheet concepts (instant=True): take the single most-recent quarter.
+
+    Concepts with fewer than four quarterly periods available are omitted from
+    the output (not enough data to form a reliable TTM).
+    """
+    from collections import defaultdict
+
+    by_concept: dict[str, list[QuarterlyFact]] = defaultdict(list)
+    for qf in quarterly:
+        by_concept[qf.concept].append(qf)
+
+    results: list[QuarterlyFact] = []
+    for concept_obj in CONCEPTS:
+        key = concept_obj.key
+        entries = sorted(by_concept.get(key, []), key=lambda q: q.period_end, reverse=True)
+        if not entries:
+            continue
+
+        if concept_obj.instant:
+            # Balance-sheet: just the most recent quarter-end value
+            results.append(entries[0])
+        else:
+            # Flow: need 4 distinct quarter ends
+            seen: set[date] = set()
+            top4: list[QuarterlyFact] = []
+            for e in entries:
+                if e.period_end not in seen:
+                    seen.add(e.period_end)
+                    top4.append(e)
+                if len(top4) == 4:
+                    break
+            if len(top4) < 4:
+                continue  # not enough quarters; skip
+            total = sum(q.value for q in top4)
+            # Represent the TTM fact with the most-recent quarter's metadata
+            results.append(
+                QuarterlyFact(
+                    concept=key,
+                    period_end=top4[0].period_end,
+                    value=total,
+                    tag=top4[0].tag,
+                    accn=top4[0].accn,
+                    filed=top4[0].filed,
+                    form="10-Q",
+                )
+            )
+    return results

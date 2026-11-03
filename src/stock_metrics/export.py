@@ -8,6 +8,7 @@ import pandas as pd
 from openpyxl.utils import get_column_letter
 
 from stock_metrics.catalog import METRICS, Unit
+from stock_metrics.metrics import TTM_FISCAL_YEAR
 
 NUMBER_FORMATS = {
     Unit.CURRENCY: '#,##0.0,,"M"',
@@ -26,7 +27,7 @@ def metrics_workbook(
     defs = [m for m in METRICS if m.key in metrics.columns]
     table = metrics[[m.key for m in defs]].T
     table.index = pd.Index([m.label for m in defs], name="Metric")
-    table.columns = [f"FY{int(y)}" for y in table.columns]
+    table.columns = ["TTM" if int(y) == TTM_FISCAL_YEAR else f"FY{int(y)}" for y in table.columns]
 
     sources = provenance.drop(columns=["overridden"], errors="ignore")
 

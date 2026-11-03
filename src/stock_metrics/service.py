@@ -161,6 +161,89 @@ def build_fact_rows(
     return rows
 
 
+def build_ttm_fact_rows(
+    ttm: list[edgar.QuarterlyFact],
+    history: prices.PriceHistory,
+    currency: str = "USD",
+    fx: pd.Series | None = None,
+    shares_per_listed_share: float = 1.0,
+) -> list[FactRow]:
+    """Convert TTM quarterly aggregates into FactRows (fiscal_year=9999).
+
+    FX rules mirror build_fact_rows():
+      - instant (balance-sheet): FX rate on or before period_end
+      - flow (income/cash-flow): average rate over the trailing 12 months
+
+    Split adjustment applies as for annual data (splits after the most recent
+    quarterly filing date). ADR handling is identical too.
+
+    The current share price is added as the TTM price point.
+    """
+    convert = currency.upper() != "USD"
+    fx = fx if fx is not None else pd.Series(dtype=float)
+    is_adr = shares_per_listed_share != 1.0
+
+    rows: list[FactRow] = []
+    for qf in ttm:
+        value = qf.value
+        notes: list[str] = ["TTM"]
+        if not is_adr:
+            factor = prices.split_factor_after(history.splits, qf.filed)
+            if qf.concept in PER_SHARE_CONCEPTS:
+                value = value / factor
+            elif qf.concept in SHARE_COUNT_CONCEPTS:
+                value = value * factor
+            if factor != 1:
+                notes.append(f"split-adjusted x{factor:g}")
+        if is_adr and qf.concept in PER_SHARE_CONCEPTS:
+            value *= shares_per_listed_share
+            notes.append(f"per ADR of {shares_per_listed_share:g} shares")
+        elif is_adr and qf.concept in SHARE_COUNT_CONCEPTS:
+            value /= shares_per_listed_share
+            notes.append(f"in ADR equivalents (÷{shares_per_listed_share:g})")
+        concept = edgar.CONCEPTS_BY_KEY[qf.concept]
+        if convert and concept.unit != edgar.SHARES:
+            ttm_start = qf.period_end - timedelta(days=365)
+            rate = (
+                prices.fx_on_or_before(fx, qf.period_end)
+                if concept.instant
+                else prices.fx_average(fx, ttm_start, qf.period_end)
+            )
+            if rate is None:
+                continue
+            value *= rate
+            notes.append(f"{currency}→USD @ {rate:.4g}")
+        rows.append(
+            FactRow(
+                concept=qf.concept,
+                fiscal_year=edgar.TTM_FISCAL_YEAR,
+                period_end=qf.period_end.isoformat(),
+                value=value,
+                source="sec-ttm",
+                tag=qf.tag + f" ({'; '.join(notes)})",
+                accn=qf.accn,
+                filed=qf.filed.isoformat(),
+            )
+        )
+
+    # Add today's price as the TTM price data point
+    today = date.today()
+    px = prices.price_on_or_before(history.close, today)
+    if px is not None:
+        per_share_note = " (ADR)" if is_adr else ""
+        rows.append(
+            FactRow(
+                "price",
+                edgar.TTM_FISCAL_YEAR,
+                today.isoformat(),
+                px,
+                "yahoo",
+                "Current price (TTM)" + per_share_note,
+            )
+        )
+    return rows
+
+
 def _pivot(facts: pd.DataFrame) -> pd.DataFrame:
     if facts.empty:
         return pd.DataFrame()
@@ -221,6 +304,10 @@ class StockMetricsService:
         history = self._fetch_prices(ticker)
         fx = self._fetch_fx(currency)
         rows = build_fact_rows(annual, history, currency, fx, ratio)
+        quarterly = edgar.extract_quarterly_facts(facts, currency)
+        ttm_raw = edgar.compute_ttm_facts(quarterly)
+        ttm_rows = build_ttm_fact_rows(ttm_raw, history, currency, fx, ratio)
+        rows = rows + ttm_rows
         self.store.save_company(ticker, cik, name, rows, currency, ratio, annual_form)
 
     def company(self, ticker: str, force_refresh: bool = False) -> CompanyData:

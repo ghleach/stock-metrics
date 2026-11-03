@@ -13,6 +13,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+TTM_FISCAL_YEAR = 9999  # Sentinel fiscal year for trailing-twelve-months rows
+
 DEFAULT_TAX_RATE = 0.21
 
 
@@ -49,11 +51,16 @@ def yoy_growth(s: pd.Series) -> pd.Series:
 
 
 def series_cagr(s: pd.Series) -> float:
-    s = s.dropna()
+    s = s[s.index != TTM_FISCAL_YEAR].dropna()
     if len(s) < 2:
         return float("nan")
     years = float(s.index[-1] - s.index[0])
     return cagr(float(s.iloc[0]), float(s.iloc[-1]), years)
+
+
+def drop_ttm(s: pd.Series) -> pd.Series:
+    """Return series with the TTM sentinel row (9999) excluded."""
+    return s[s.index != TTM_FISCAL_YEAR]
 
 
 def compute_metrics(base: pd.DataFrame) -> pd.DataFrame:
