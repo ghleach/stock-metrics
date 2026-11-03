@@ -11,6 +11,7 @@ concept therefore has a priority list of tags, resolved per fiscal year.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -320,6 +321,8 @@ class EdgarClient:
         self._timeout = timeout
 
     def _get_json(self, url: str) -> Any:
+        # SEC fair-access policy: keep requests to ≤10/second.
+        time.sleep(0.11)
         resp = self._session.get(url, timeout=self._timeout)
         resp.raise_for_status()
         return resp.json()

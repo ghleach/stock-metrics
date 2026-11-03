@@ -74,7 +74,10 @@ def compute_metrics(base: pd.DataFrame) -> pd.DataFrame:
     out["operating_income"] = operating_income
     out["ebitda"] = operating_income + _col(b, "d_and_a")
     out["net_income"] = net_income
-    out["free_cash_flow"] = _col(b, "operating_cash_flow") - _col(b, "capex").fillna(0)
+    # capex: SEC tags like PaymentsToAcquirePropertyPlantAndEquipment are
+    # reported as positive outflows. A few companies tag them as negative; take
+    # abs() so FCF = operating cash flow - |capex| regardless of sign convention.
+    out["free_cash_flow"] = _col(b, "operating_cash_flow") - _col(b, "capex").abs().fillna(0)
     out["eps_diluted"] = _first_available(_col(b, "eps_diluted"), _col(b, "eps_basic"))
     out["eps_basic"] = _col(b, "eps_basic")
 

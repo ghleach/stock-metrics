@@ -36,7 +36,7 @@ def metrics_workbook(
         sources.to_excel(writer, sheet_name="Sources", index=False)
 
         ws = writer.sheets["Metrics"]
-        ws["A1"] = f"{name} ({ticker}) — currency and share counts in millions"
+        ws["A1"] = f"{name} ({ticker}) — figures in USD (cells formatted in $M; share counts in M shares)"
         ws.column_dimensions["A"].width = 34
         for col in range(2, table.shape[1] + 2):
             ws.column_dimensions[get_column_letter(col)].width = 12

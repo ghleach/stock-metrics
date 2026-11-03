@@ -10,7 +10,9 @@ import pandas as pd
 from stock_metrics.service import CompanyData, StockMetricsService
 from stock_metrics.sources.sharesight import US_MARKETS, Holding, SharesightClient
 
-SNAPSHOT_METRICS = ("pe", "dividend_yield", "net_margin", "roic", "revenue_cagr_5y")
+# Keys shown in the portfolio holdings table. revenue_cagr_5y is computed
+# ad-hoc in snapshot_row() rather than stored in the metrics DataFrame.
+_SNAPSHOT_KEYS = ("pe", "dividend_yield", "net_margin", "roic", "revenue_cagr_5y")
 
 
 class SharesightNotConfiguredError(RuntimeError):
@@ -27,7 +29,7 @@ class PortfolioService:
         self.store = metrics_service.store
         settings = metrics_service.settings
         if client_factory is None and settings.sharesight_configured:
-            assert settings.sharesight_client_id and settings.sharesight_client_secret
+            # sharesight_configured already checks both are non-empty; no assert needed.
             cid, secret = settings.sharesight_client_id, settings.sharesight_client_secret
 
             def client_factory() -> SharesightClient:

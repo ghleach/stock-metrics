@@ -37,7 +37,11 @@ def _to_date_index(s: pd.Series) -> pd.Series:
 
 def fetch_price_history(ticker: str) -> PriceHistory:
     t = yf.Ticker(ticker)
-    hist = t.history(period="max", auto_adjust=False, actions=True)
+    # timeout is not a yfinance parameter; the underlying requests session uses
+    # its own default. We rely on Streamlit's spinner and the SEC 30 s timeout
+    # to bound the overall load time. A hung Yahoo call is rare but handled by
+    # the broad except in the UI layer.
+    hist = t.history(period="max", auto_adjust=False, actions=True, timeout=30)
     if hist.empty:
         return PriceHistory(pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float))
     close = _to_date_index(hist["Close"])
@@ -93,7 +97,7 @@ def fetch_fx_history(currency: str) -> pd.Series:
     """Daily USD value of one unit of `currency` (empty for USD)."""
     if currency.upper() == "USD":
         return pd.Series(dtype=float)
-    hist = yf.Ticker(f"{currency.upper()}USD=X").history(period="max", auto_adjust=False)
+    hist = yf.Ticker(f"{currency.upper()}USD=X").history(period="max", auto_adjust=False, timeout=30)
     if hist.empty:
         return pd.Series(dtype=float)
     return _to_date_index(hist["Close"])
