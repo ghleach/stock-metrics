@@ -11,7 +11,9 @@ concept therefore has a priority list of tags, resolved per fiscal year.
 
 from __future__ import annotations
 
+import math
 import time
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -542,11 +544,14 @@ def extract_quarterly_facts(
         for tag in concept.tags:
             taxonomy, name = _split_tag(tag)
             for e in _quarterly_entries(facts, concept, tag, currency):
+                raw_val = float(e["val"])
+                if not math.isfinite(raw_val):
+                    continue
                 period_end = date.fromisoformat(e["end"])
                 qf = QuarterlyFact(
                     concept=concept.key,
                     period_end=period_end,
-                    value=float(e["val"]),
+                    value=raw_val,
                     tag=f"{taxonomy}:{name}",
                     accn=e.get("accn", ""),
                     filed=date.fromisoformat(e["filed"]),
@@ -570,8 +575,6 @@ def compute_ttm_facts(quarterly: list[QuarterlyFact]) -> list[QuarterlyFact]:
     Concepts with fewer than four quarterly periods available are omitted from
     the output (not enough data to form a reliable TTM).
     """
-    from collections import defaultdict
-
     by_concept: dict[str, list[QuarterlyFact]] = defaultdict(list)
     for qf in quarterly:
         by_concept[qf.concept].append(qf)
@@ -598,6 +601,9 @@ def compute_ttm_facts(quarterly: list[QuarterlyFact]) -> list[QuarterlyFact]:
                     break
             if len(top4) < 4:
                 continue  # not enough quarters; skip
+            # Skip if any quarter has a non-finite value (NaN/inf from bad data)
+            if any(not math.isfinite(q.value) for q in top4):
+                continue
             total = sum(q.value for q in top4)
             # Represent the TTM fact with the most-recent quarter's metadata
             results.append(

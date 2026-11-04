@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -213,6 +214,8 @@ def build_ttm_fact_rows(
                 continue
             value *= rate
             notes.append(f"{currency}→USD @ {rate:.4g}")
+        if not math.isfinite(value):
+            continue
         rows.append(
             FactRow(
                 concept=qf.concept,
@@ -221,8 +224,8 @@ def build_ttm_fact_rows(
                 value=value,
                 source="sec-ttm",
                 tag=qf.tag + f" ({'; '.join(notes)})",
-                accn=qf.accn,
-                filed=qf.filed.isoformat(),
+                accn=qf.accn if qf.accn else None,
+                filed=qf.filed.isoformat() if qf.filed else None,
             )
         )
 

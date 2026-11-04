@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -182,6 +183,7 @@ class Store:
                         f.filed,
                     )
                     for f in facts
+                    if math.isfinite(f.value)  # guard: skip NaN/inf that would violate NOT NULL
                 ],
             )
             conn.execute(
