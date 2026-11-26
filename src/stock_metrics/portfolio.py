@@ -28,9 +28,10 @@ class PortfolioService:
         self.metrics = metrics_service
         self.store = metrics_service.store
         settings = metrics_service.settings
-        if client_factory is None and settings.sharesight_configured:
-            # sharesight_configured already checks both are non-empty; no assert needed.
-            cid, secret = settings.sharesight_client_id, settings.sharesight_client_secret
+        cid, secret = settings.sharesight_client_id, settings.sharesight_client_secret
+        # Check the values directly (not just sharesight_configured) so mypy knows
+        # they are str, not str | None, inside the factory.
+        if client_factory is None and cid and secret:
 
             def client_factory() -> SharesightClient:
                 return SharesightClient(cid, secret)

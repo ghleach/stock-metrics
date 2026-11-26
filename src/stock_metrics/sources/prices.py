@@ -97,7 +97,9 @@ def fetch_fx_history(currency: str) -> pd.Series:
     """Daily USD value of one unit of `currency` (empty for USD)."""
     if currency.upper() == "USD":
         return pd.Series(dtype=float)
-    hist = yf.Ticker(f"{currency.upper()}USD=X").history(period="max", auto_adjust=False, timeout=30)
+    hist = yf.Ticker(f"{currency.upper()}USD=X").history(
+        period="max", auto_adjust=False, timeout=30
+    )
     if hist.empty:
         return pd.Series(dtype=float)
     return _to_date_index(hist["Close"])
