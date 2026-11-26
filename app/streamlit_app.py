@@ -91,7 +91,9 @@ def render_snapshot(company: CompanyData) -> None:
     ]
     fy_end = company.provenance["period_end"].dropna().max()
     fy_display = _fy_label(fy)
-    period_note = "trailing twelve months" if fy == TTM_FISCAL_YEAR else f"fiscal year ended {fy_end}"
+    period_note = (
+        "trailing twelve months" if fy == TTM_FISCAL_YEAR else f"fiscal year ended {fy_end}"
+    )
     st.caption(f"Snapshot · {fy_display} ({period_note})")
     # Two rows of three keeps values readable on laptop-width windows.
     cols = [c for _ in range(2) for c in st.columns(3)]
@@ -154,15 +156,24 @@ def page_dashboard(service: StockMetricsService) -> None:
         q = query.strip().upper()
         if q:
             # Ticker exact match first, then ticker prefix, then name contains
-            exact   = [l for l in all_labels if label_to_ticker[l] == q]
-            prefix  = [l for l in all_labels if label_to_ticker[l].startswith(q) and l not in exact]
-            name_m  = [l for l in all_labels if q in names[label_to_ticker[l]].upper()
-                       and l not in exact and l not in prefix]
+            exact = [lbl for lbl in all_labels if label_to_ticker[lbl] == q]
+            prefix = [
+                lbl for lbl in all_labels if label_to_ticker[lbl].startswith(q) and lbl not in exact
+            ]
+            name_m = [
+                lbl
+                for lbl in all_labels
+                if q in names[label_to_ticker[lbl]].upper()
+                and lbl not in exact
+                and lbl not in prefix
+            ]
             filtered = exact + prefix + name_m
         else:
             filtered = all_labels
 
-        current_label = ticker_to_label.get(st.session_state.ticker, filtered[0] if filtered else all_labels[0])
+        current_label = ticker_to_label.get(
+            st.session_state.ticker, filtered[0] if filtered else all_labels[0]
+        )
         if current_label not in filtered:
             filtered = [current_label] + filtered
 
